@@ -12,10 +12,9 @@ import {
   subscribeToSchedule,
   subscribeToSpecPlan,
   subscribeToDateTrack,
+  subscribeDealerConfig,
 } from "@/lib/firebase";
-import { subscribeToDealerConfig } from "@/lib/dealerConfig";
 import type { ScheduleItem, SpecPlan, DateTrack } from "@/types";
-import type { DealerConfig } from "@/types/dealer";
 import * as XLSX from "xlsx";
 
 /** 将 URL 中的 dealerId 还原为真实的 slug（去掉随机后缀 -xxxxxx） */
@@ -46,7 +45,7 @@ export default function DealerPortal() {
   const [allOrders, setAllOrders] = useState<ScheduleItem[]>([]);
   const [specPlans, setSpecPlans] = useState<SpecPlan>({});
   const [dateTracks, setDateTracks] = useState<DateTrack>({});
-  const [dealerConfig, setDealerConfig] = useState<DealerConfig | null>(null);
+  const [dealerConfig, setDealerConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(true);
   
@@ -74,7 +73,7 @@ export default function DealerPortal() {
   useEffect(() => {
     if (!dealerSlug) return;
 
-    const unsubConfig = subscribeToDealerConfig(dealerSlug, (config) => {
+    const unsubConfig = subscribeDealerConfig(dealerSlug, (config) => {
       setDealerConfig(config);
       setConfigLoading(false);
     });
