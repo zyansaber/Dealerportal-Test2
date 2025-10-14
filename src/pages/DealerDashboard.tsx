@@ -1,4 +1,5 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
+import { subscribeDealerConfig, type DealerConfig } from "@/lib/firebase";
 import { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import { subscribeToSchedule } from "@/lib/firebase";
@@ -61,13 +62,27 @@ export default function DealerDashboard() {
       : prettifyDealerName(dealerSlug);
   }, [orders, dealerSlug]);
 
-  // 从localStorage加载PowerBI URL
+  // 从 Firebase 订阅 dealer 配置并设置 PowerBI URL
+  const navigate = useNavigate();
+  const [cfg, setCfg] = useState<DealerConfig | null>(null);
   useEffect(() => {
-    const savedUrl = localStorage.getItem(`powerbi-url-${dealerSlug}`);
-    if (savedUrl) {
-      setPowerbiUrl(savedUrl);
-    }
+    if (!dealerSlug) return;
+    const off = subscribeDealerConfig(dealerSlug, (c) => setCfg(c));
+    return () => off?.();
   }, [dealerSlug]);
+
+  useEffect(() => {
+    if (!cfg) return;
+    if (cfg.powerbi_url) setPowerbiUrl(cfg.powerbi_url);
+    // 访问控制：access + code
+    if (cfg.access === false) { navigate("/access-restricted"); return; }
+    const m = (rawDealerSlug||"").match(/^(.*?)-([a-z0-9]{6})$/);
+    const urlCode = m ? m[2] : "";
+    if ((cfg.code||"").length === 6 && urlCode !== cfg.code) {
+      navigate("/access-restricted");
+      return;
+    }
+  }, [cfg, rawDealerSlug, navigate]);
 
   return (
     <div className="flex min-h-screen">
