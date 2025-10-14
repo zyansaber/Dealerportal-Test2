@@ -76,3 +76,6 @@ export interface SubscriptionData {
   status: string;
   subscribedAt: string;
 }
+
+// Export dealer types
+export * from './dealer';
