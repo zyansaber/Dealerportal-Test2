@@ -110,12 +110,6 @@ export default function Admin() {
     localStorage.removeItem(`powerbi-url-${dealer}`);
     setPowerbiConfigs(prev => {
       const newConfigs = { ...prev };
-      delete newConfigs[dealer];
-      return newConfigs;
-    });
-    
-    toast.success("Dealer removed");
-  };
 
   const copyDealerUrl = (dealer: string) => {
     const code = dealerCodes[dealer];
@@ -143,11 +137,6 @@ export default function Admin() {
 
   const removePowerbiConfig = async (dealer: string) => {
     await setDealerConfig(dealer, { powerbi_url: "" });
-    toast.success("PowerBI configuration removed");
-  };
-      delete newConfigs[dealer];
-      return newConfigs;
-    });
     toast.success("PowerBI configuration removed");
   };
 
