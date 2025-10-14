@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Settings, ExternalLink, Save, Trash2, Copy, Link } from "lucide-react";
+import { subscribeAllDealerConfigs, setDealerConfig } from "@/lib/firebase";
 
 // 生成随机6位字符串
 function generateRandomCode(): string {
@@ -26,7 +27,7 @@ function dealerNameToSlug(name: string): string {
 }
 
 export default function Admin() {
-  const [dealerAccess, setDealerAccess] = useState<Record<string, boolean>>({});
+  const [dealerConfigs, setDealerConfigs] = useState<Record<string, { access?: boolean; code?: string; powerbi_url?: string }>>({});
   const [dealerCodes, setDealerCodes] = useState<Record<string, string>>({});
   const [newDealer, setNewDealer] = useState("");
   const [powerbiConfigs, setPowerbiConfigs] = useState<Record<string, string>>({});
@@ -73,17 +74,11 @@ export default function Admin() {
     toast.success("Dealer access settings saved");
   };
 
-  const addDealer = () => {
-    if (!newDealer.trim()) {
-      toast.error("Please enter a dealer name");
-      return;
-    }
-    
+  const addDealer = async () => {
+    if (!newDealer.trim()) { toast.error("Please enter a dealer name"); return; }
     const slug = dealerNameToSlug(newDealer);
     const code = generateRandomCode();
-    
-    setDealerAccess(prev => ({ ...prev, [slug]: true }));
-    setDealerCodes(prev => ({ ...prev, [slug]: code }));
+    await setDealerConfig(slug, { access: true, code });
     setNewDealer("");
     toast.success(`Dealer "${newDealer}" added with code: ${code}`);
   };
@@ -137,35 +132,30 @@ export default function Admin() {
     });
   };
 
-  const savePowerbiConfig = () => {
-    if (!selectedDealer) {
-      toast.error("Please select a dealer");
-      return;
-    }
-    
-    if (!powerbiUrl.trim()) {
-      toast.error("Please enter a PowerBI URL");
-      return;
-    }
-
-    localStorage.setItem(`powerbi-url-${selectedDealer}`, powerbiUrl.trim());
-    setPowerbiConfigs(prev => ({ ...prev, [selectedDealer]: powerbiUrl.trim() }));
+  const savePowerbiConfig = async () => {
+    if (!selectedDealer) { toast.error("Please select a dealer"); return; }
+    if (!powerbiUrl.trim()) { toast.error("Please enter a PowerBI URL"); return; }
+    await setDealerConfig(selectedDealer, { powerbi_url: powerbiUrl.trim() });
     toast.success("PowerBI configuration saved");
     setPowerbiUrl("");
     setSelectedDealer("");
   };
 
-  const removePowerbiConfig = (dealer: string) => {
-    localStorage.removeItem(`powerbi-url-${dealer}`);
-    setPowerbiConfigs(prev => {
-      const newConfigs = { ...prev };
+  const removePowerbiConfig = async (dealer: string) => {
+    await setDealerConfig(dealer, { powerbi_url: "" });
+    toast.success("PowerBI configuration removed");
+  };
       delete newConfigs[dealer];
       return newConfigs;
     });
     toast.success("PowerBI configuration removed");
   };
 
-  const dealers = Object.keys(dealerAccess);
+  const toggleAccess = async (slug: string, v: boolean) => { await setDealerConfig(slug, { access: v }); toast.success('Dealer access updated'); };
+
+  const removeDealer = async (slug: string) => { await setDealerConfig(slug, null); toast.success('Dealer removed'); };
+
+  const dealers = Object.keys(dealerConfigs);
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -224,7 +214,7 @@ export default function Admin() {
                     <p className="text-slate-500 text-center py-8">No dealers configured</p>
                   ) : (
                     dealers.map((dealer) => {
-                      const code = dealerCodes[dealer] || "no-code";
+                      const code = dealerConfigs[dealer]?.code || "no-code";
                       const fullUrl = `${window.location.origin}/dealer/${dealer}-${code}`;
                       
                       return (
@@ -232,8 +222,8 @@ export default function Admin() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <span className="font-medium text-lg">{dealer}</span>
-                              <Badge variant={dealerAccess[dealer] ? "default" : "secondary"}>
-                                {dealerAccess[dealer] ? "Active" : "Inactive"}
+                              <Badge variant={!!dealerConfigs[dealer]?.access ? "default" : "secondary"}>
+                                {!!dealerConfigs[dealer]?.access ? "Active" : "Inactive"}
                               </Badge>
                             </div>
                             <div className="flex items-center gap-2">
@@ -242,7 +232,7 @@ export default function Admin() {
                                 size="sm"
                                 onClick={() => toggleDealerAccess(dealer)}
                               >
-                                {dealerAccess[dealer] ? "Deactivate" : "Activate"}
+                                {!!dealerConfigs[dealer]?.access ? "Deactivate" : "Activate"}
                               </Button>
                               <Button
                                 variant="outline"
