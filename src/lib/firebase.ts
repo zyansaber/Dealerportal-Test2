@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, off } from "firebase/database";
+import { getDatabase, ref, onValue, off, get, set } from "firebase/database";
 import type { ScheduleItem, SpecPlan, DateTrack } from "@/types";
 
 const firebaseConfig = {
@@ -163,15 +163,15 @@ export type DealerConfig = {
 };
 
 export const subscribeDealerConfig = (dealerSlug: string, callback: (cfg: DealerConfig | null) => void) => {
-  const cfgRef = ref(db, `dealer_config/${dealerSlug}`);
-  const off = onValue(cfgRef, (snap) => {
+  const cfgRef = ref(database, `dealer_config/${dealerSlug}`);
+  const unsub = onValue(cfgRef, (snap) => {
     callback((snap.val() as DealerConfig) ?? null);
   });
-  return () => off();
+  return () => unsub();
 };
 
 export const setDealerConfig = async (dealerSlug: string, partial: DealerConfig | null) => {
-  const cfgRef = ref(db, `dealer_config/${dealerSlug}`);
+  const cfgRef = ref(database, `dealer_config/${dealerSlug}`);
   if (partial === null) {
     await set(cfgRef, null);
   } else {
@@ -182,9 +182,9 @@ export const setDealerConfig = async (dealerSlug: string, partial: DealerConfig 
 };
 
 export const subscribeAllDealerConfigs = (callback: (all: Record<string, DealerConfig>) => void) => {
-  const cfgRef = ref(db, `dealer_config`);
-  const off = onValue(cfgRef, (snap) => {
+  const cfgRef = ref(database, `dealer_config`);
+  const unsub = onValue(cfgRef, (snap) => {
     callback((snap.val() as Record<string, DealerConfig>) ?? {});
   });
-  return () => off();
+  return () => unsub();
 };
