@@ -1,10 +1,8 @@
 import { useParams } from "react-router-dom";
 import { useMemo, useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
-import { subscribeToSchedule } from "@/lib/firebase";
-import { subscribeToDealerConfig } from "@/lib/dealerConfig";
+import { subscribeToSchedule, subscribeDealerConfig } from "@/lib/firebase";
 import type { ScheduleItem } from "@/types";
-import type { DealerConfig } from "@/types/dealer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Settings, AlertTriangle } from "lucide-react";
@@ -35,7 +33,7 @@ export default function DealerDashboard() {
   const dealerSlug = useMemo(() => normalizeDealerSlug(rawDealerSlug), [rawDealerSlug]);
 
   const [allOrders, setAllOrders] = useState<ScheduleItem[]>([]);
-  const [dealerConfig, setDealerConfig] = useState<DealerConfig | null>(null);
+  const [dealerConfig, setDealerConfig] = useState<any>(null);
   const [configLoading, setConfigLoading] = useState(true);
 
   // 订阅订单数据
@@ -52,7 +50,7 @@ export default function DealerDashboard() {
   useEffect(() => {
     if (!dealerSlug) return;
 
-    const unsubConfig = subscribeToDealerConfig(dealerSlug, (config) => {
+    const unsubConfig = subscribeDealerConfig(dealerSlug, (config) => {
       setDealerConfig(config);
       setConfigLoading(false);
     });
@@ -146,14 +144,14 @@ export default function DealerDashboard() {
             </div>
             
             <div className="flex items-center gap-3">
-              {dealerConfig?.powerbiUrl && (
+              {dealerConfig?.powerbi_url && (
                 <Button
                   variant="outline"
                   size="sm"
                   asChild
                 >
                   <a
-                    href={dealerConfig.powerbiUrl}
+                    href={dealerConfig.powerbi_url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2"
@@ -169,11 +167,11 @@ export default function DealerDashboard() {
 
         {/* Dashboard Content */}
         <div className="flex-1 p-6">
-          {dealerConfig?.powerbiUrl ? (
+          {dealerConfig?.powerbi_url ? (
             <Card className="h-full">
               <CardContent className="p-0 h-full">
                 <iframe
-                  src={dealerConfig.powerbiUrl}
+                  src={dealerConfig.powerbi_url}
                   className="w-full h-full min-h-[600px] border-0 rounded-lg"
                   title={`${dealerDisplayName} PowerBI Dashboard`}
                   allowFullScreen
