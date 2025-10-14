@@ -10,26 +10,24 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Settings, ExternalLink, Save, Trash2, Copy, Link } from "lucide-react";
 import {
-  subscribeToDealerConfigs,
-  saveDealerConfig,
+  subscribeAllDealerConfigs,
+  setDealerConfig,
   removeDealerConfig,
-  updateDealerPowerbiUrl,
-  updateDealerActiveStatus,
+  setPowerbiUrl,
   generateRandomCode,
   dealerNameToSlug
-} from "@/lib/dealerConfig";
-import type { DealerConfigs } from "@/types/dealer";
+} from "@/lib/firebase";
 
 export default function Admin() {
-  const [dealerConfigs, setDealerConfigs] = useState<DealerConfigs>({});
+  const [dealerConfigs, setDealerConfigs] = useState<any>({});
   const [newDealer, setNewDealer] = useState("");
   const [selectedDealer, setSelectedDealer] = useState("");
-  const [powerbiUrl, setPowerbiUrl] = useState("");
+  const [powerbiUrl, setPowerbiUrlInput] = useState("");
   const [loading, setLoading] = useState(true);
 
   // 订阅经销商配置数据
   useEffect(() => {
-    const unsubscribe = subscribeToDealerConfigs((data) => {
+    const unsubscribe = subscribeAllDealerConfigs((data) => {
       setDealerConfigs(data);
       setLoading(false);
     });
@@ -54,12 +52,11 @@ export default function Admin() {
     const code = generateRandomCode();
     
     try {
-      await saveDealerConfig(slug, {
+      await setDealerConfig(slug, {
         name: newDealer.trim(),
         code,
         isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        createdAt: new Date().toISOString()
       });
       
       setNewDealer("");
@@ -75,7 +72,10 @@ export default function Admin() {
     if (!config) return;
 
     try {
-      await updateDealerActiveStatus(dealerSlug, !config.isActive);
+      await setDealerConfig(dealerSlug, {
+        ...config,
+        isActive: !config.isActive
+      });
       toast.success(`Dealer ${config.isActive ? 'deactivated' : 'activated'}`);
     } catch (error) {
       console.error("Failed to toggle dealer access:", error);
@@ -90,7 +90,7 @@ export default function Admin() {
     const newCode = generateRandomCode();
     
     try {
-      await saveDealerConfig(dealerSlug, {
+      await setDealerConfig(dealerSlug, {
         ...config,
         code: newCode
       });
@@ -142,9 +142,9 @@ export default function Admin() {
     }
 
     try {
-      await updateDealerPowerbiUrl(selectedDealer, powerbiUrl.trim());
+      await setPowerbiUrl(selectedDealer, powerbiUrl.trim());
       toast.success("PowerBI configuration saved");
-      setPowerbiUrl("");
+      setPowerbiUrlInput("");
       setSelectedDealer("");
     } catch (error) {
       console.error("Failed to save PowerBI config:", error);
@@ -154,7 +154,7 @@ export default function Admin() {
 
   const removePowerbiConfig = async (dealerSlug: string) => {
     try {
-      await updateDealerPowerbiUrl(dealerSlug, "");
+      await setPowerbiUrl(dealerSlug, "");
       toast.success("PowerBI configuration removed");
     } catch (error) {
       console.error("Failed to remove PowerBI config:", error);
@@ -164,7 +164,7 @@ export default function Admin() {
 
   const dealers = Object.keys(dealerConfigs);
   const activeDealers = dealers.filter(slug => dealerConfigs[slug]?.isActive);
-  const dealersWithPowerbi = dealers.filter(slug => dealerConfigs[slug]?.powerbiUrl);
+  const dealersWithPowerbi = dealers.filter(slug => dealerConfigs[slug]?.powerbi_url);
 
   if (loading) {
     return (
@@ -260,7 +260,7 @@ export default function Admin() {
                               <Badge variant={config.isActive ? "default" : "secondary"}>
                                 {config.isActive ? "Active" : "Inactive"}
                               </Badge>
-                              {config.powerbiUrl && (
+                              {config.powerbi_url && (
                                 <Badge variant="outline" className="text-purple-600">
                                   PowerBI
                                 </Badge>
@@ -376,7 +376,7 @@ export default function Admin() {
                     id="powerbi-url"
                     placeholder="Enter PowerBI embed URL (e.g., https://app.powerbi.com/view?r=...)"
                     value={powerbiUrl}
-                    onChange={(e) => setPowerbiUrl(e.target.value)}
+                    onChange={(e) => setPowerbiUrlInput(e.target.value)}
                     className="mt-1"
                     rows={3}
                   />
@@ -403,13 +403,13 @@ export default function Admin() {
                   ) : (
                     dealersWithPowerbi.map((dealerSlug) => {
                       const config = dealerConfigs[dealerSlug];
-                      if (!config?.powerbiUrl) return null;
+                      if (!config?.powerbi_url) return null;
                       
                       return (
                         <div key={dealerSlug} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                           <div className="flex-1 min-w-0">
                             <div className="font-medium">{config.name}</div>
-                            <div className="text-sm text-slate-500 truncate">{config.powerbiUrl}</div>
+                            <div className="text-sm text-slate-500 truncate">{config.powerbi_url}</div>
                           </div>
                           <div className="flex items-center gap-2 ml-4">
                             <Button
@@ -418,7 +418,7 @@ export default function Admin() {
                               asChild
                             >
                               <a
-                                href={config.powerbiUrl}
+                                href={config.powerbi_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-1"
