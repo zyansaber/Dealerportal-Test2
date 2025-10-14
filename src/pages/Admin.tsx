@@ -9,127 +9,120 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Settings, ExternalLink, Save, Trash2, Copy, Link } from "lucide-react";
-
-// 生成随机6位字符串
-function generateRandomCode(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-// 将dealer名称转换为slug
-function dealerNameToSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
+import {
+  subscribeToDealerConfigs,
+  saveDealerConfig,
+  removeDealerConfig,
+  updateDealerPowerbiUrl,
+  updateDealerActiveStatus,
+  generateRandomCode,
+  dealerNameToSlug
+} from "@/lib/dealerConfig";
+import type { DealerConfigs } from "@/types/dealer";
 
 export default function Admin() {
-  const [dealerAccess, setDealerAccess] = useState<Record<string, boolean>>({});
-  const [dealerCodes, setDealerCodes] = useState<Record<string, string>>({});
+  const [dealerConfigs, setDealerConfigs] = useState<DealerConfigs>({});
   const [newDealer, setNewDealer] = useState("");
-  const [powerbiConfigs, setPowerbiConfigs] = useState<Record<string, string>>({});
   const [selectedDealer, setSelectedDealer] = useState("");
   const [powerbiUrl, setPowerbiUrl] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  // Load data from localStorage
+  // 订阅经销商配置数据
   useEffect(() => {
-    // Load dealer access
-    const savedAccess = localStorage.getItem("dealer-access");
-    if (savedAccess) {
-      try {
-        setDealerAccess(JSON.parse(savedAccess));
-      } catch (e) {
-        console.error("Failed to parse dealer access:", e);
-      }
-    }
+    const unsubscribe = subscribeToDealerConfigs((data) => {
+      setDealerConfigs(data);
+      setLoading(false);
+    });
 
-    // Load dealer codes
-    const savedCodes = localStorage.getItem("dealer-codes");
-    if (savedCodes) {
-      try {
-        setDealerCodes(JSON.parse(savedCodes));
-      } catch (e) {
-        console.error("Failed to parse dealer codes:", e);
-      }
-    }
-
-    // Load PowerBI configs
-    const configs: Record<string, string> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith("powerbi-url-")) {
-        const dealerSlug = key.replace("powerbi-url-", "");
-        configs[dealerSlug] = localStorage.getItem(key) || "";
-      }
-    }
-    setPowerbiConfigs(configs);
+    return unsubscribe;
   }, []);
 
-  const saveDealerAccess = () => {
-    localStorage.setItem("dealer-access", JSON.stringify(dealerAccess));
-    localStorage.setItem("dealer-codes", JSON.stringify(dealerCodes));
-    toast.success("Dealer access settings saved");
-  };
-
-  const addDealer = () => {
+  const addDealer = async () => {
     if (!newDealer.trim()) {
       toast.error("Please enter a dealer name");
       return;
     }
     
     const slug = dealerNameToSlug(newDealer);
-    const code = generateRandomCode();
     
-    setDealerAccess(prev => ({ ...prev, [slug]: true }));
-    setDealerCodes(prev => ({ ...prev, [slug]: code }));
-    setNewDealer("");
-    toast.success(`Dealer "${newDealer}" added with code: ${code}`);
-  };
-
-  const toggleDealerAccess = (dealer: string) => {
-    setDealerAccess(prev => ({ ...prev, [dealer]: !prev[dealer] }));
-  };
-
-  const regenerateCode = (dealer: string) => {
-    const newCode = generateRandomCode();
-    setDealerCodes(prev => ({ ...prev, [dealer]: newCode }));
-    toast.success(`New code generated for ${dealer}: ${newCode}`);
-  };
-
-  const removeDealer = (dealer: string) => {
-    setDealerAccess(prev => {
-      const newAccess = { ...prev };
-      delete newAccess[dealer];
-      return newAccess;
-    });
-    
-    setDealerCodes(prev => {
-      const newCodes = { ...prev };
-      delete newCodes[dealer];
-      return newCodes;
-    });
-    
-    // Also remove PowerBI config
-    localStorage.removeItem(`powerbi-url-${dealer}`);
-    setPowerbiConfigs(prev => {
-      const newConfigs = { ...prev };
-      delete newConfigs[dealer];
-      return newConfigs;
-    });
-    
-    toast.success("Dealer removed");
-  };
-
-  const copyDealerUrl = (dealer: string) => {
-    const code = dealerCodes[dealer];
-    if (!code) {
-      toast.error("No code found for this dealer");
+    // 检查是否已存在
+    if (dealerConfigs[slug]) {
+      toast.error("Dealer with this name already exists");
       return;
     }
     
-    const url = `${window.location.origin}/dealer/${dealer}-${code}`;
+    const code = generateRandomCode();
+    
+    try {
+      await saveDealerConfig(slug, {
+        name: newDealer.trim(),
+        code,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      
+      setNewDealer("");
+      toast.success(`Dealer "${newDealer}" added with code: ${code}`);
+    } catch (error) {
+      console.error("Failed to add dealer:", error);
+      toast.error("Failed to add dealer. Please try again.");
+    }
+  };
+
+  const toggleDealerAccess = async (dealerSlug: string) => {
+    const config = dealerConfigs[dealerSlug];
+    if (!config) return;
+
+    try {
+      await updateDealerActiveStatus(dealerSlug, !config.isActive);
+      toast.success(`Dealer ${config.isActive ? 'deactivated' : 'activated'}`);
+    } catch (error) {
+      console.error("Failed to toggle dealer access:", error);
+      toast.error("Failed to update dealer status. Please try again.");
+    }
+  };
+
+  const regenerateCode = async (dealerSlug: string) => {
+    const config = dealerConfigs[dealerSlug];
+    if (!config) return;
+
+    const newCode = generateRandomCode();
+    
+    try {
+      await saveDealerConfig(dealerSlug, {
+        ...config,
+        code: newCode
+      });
+      
+      toast.success(`New code generated for ${config.name}: ${newCode}`);
+    } catch (error) {
+      console.error("Failed to regenerate code:", error);
+      toast.error("Failed to regenerate code. Please try again.");
+    }
+  };
+
+  const removeDealer = async (dealerSlug: string) => {
+    const config = dealerConfigs[dealerSlug];
+    if (!config) return;
+
+    try {
+      await removeDealerConfig(dealerSlug);
+      toast.success("Dealer removed successfully");
+    } catch (error) {
+      console.error("Failed to remove dealer:", error);
+      toast.error("Failed to remove dealer. Please try again.");
+    }
+  };
+
+  const copyDealerUrl = (dealerSlug: string) => {
+    const config = dealerConfigs[dealerSlug];
+    if (!config) {
+      toast.error("No configuration found for this dealer");
+      return;
+    }
+    
+    const url = `${window.location.origin}/dealer/${dealerSlug}-${config.code}`;
     navigator.clipboard.writeText(url).then(() => {
       toast.success("Dealer URL copied to clipboard");
     }).catch(() => {
@@ -137,7 +130,7 @@ export default function Admin() {
     });
   };
 
-  const savePowerbiConfig = () => {
+  const savePowerbiConfig = async () => {
     if (!selectedDealer) {
       toast.error("Please select a dealer");
       return;
@@ -148,24 +141,38 @@ export default function Admin() {
       return;
     }
 
-    localStorage.setItem(`powerbi-url-${selectedDealer}`, powerbiUrl.trim());
-    setPowerbiConfigs(prev => ({ ...prev, [selectedDealer]: powerbiUrl.trim() }));
-    toast.success("PowerBI configuration saved");
-    setPowerbiUrl("");
-    setSelectedDealer("");
+    try {
+      await updateDealerPowerbiUrl(selectedDealer, powerbiUrl.trim());
+      toast.success("PowerBI configuration saved");
+      setPowerbiUrl("");
+      setSelectedDealer("");
+    } catch (error) {
+      console.error("Failed to save PowerBI config:", error);
+      toast.error("Failed to save PowerBI configuration. Please try again.");
+    }
   };
 
-  const removePowerbiConfig = (dealer: string) => {
-    localStorage.removeItem(`powerbi-url-${dealer}`);
-    setPowerbiConfigs(prev => {
-      const newConfigs = { ...prev };
-      delete newConfigs[dealer];
-      return newConfigs;
-    });
-    toast.success("PowerBI configuration removed");
+  const removePowerbiConfig = async (dealerSlug: string) => {
+    try {
+      await updateDealerPowerbiUrl(dealerSlug, "");
+      toast.success("PowerBI configuration removed");
+    } catch (error) {
+      console.error("Failed to remove PowerBI config:", error);
+      toast.error("Failed to remove PowerBI configuration. Please try again.");
+    }
   };
 
-  const dealers = Object.keys(dealerAccess);
+  const dealers = Object.keys(dealerConfigs);
+  const activeDealers = dealers.filter(slug => dealerConfigs[slug]?.isActive);
+  const dealersWithPowerbi = dealers.filter(slug => dealerConfigs[slug]?.powerbiUrl);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-slate-600">Loading admin panel...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -180,6 +187,28 @@ export default function Admin() {
             <Settings className="w-5 h-5 text-slate-500" />
             <span className="text-sm text-slate-500">System Administration</span>
           </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-blue-600">{dealers.length}</div>
+              <div className="text-sm text-slate-600">Total Dealers</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-green-600">{activeDealers.length}</div>
+              <div className="text-sm text-slate-600">Active Dealers</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-purple-600">{dealersWithPowerbi.length}</div>
+              <div className="text-sm text-slate-600">PowerBI Configured</div>
+            </CardContent>
+          </Card>
         </div>
 
         <Tabs defaultValue="dealers" className="space-y-6">
@@ -210,44 +239,45 @@ export default function Admin() {
 
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Dealer Access Control & URLs</CardTitle>
-                  <Button onClick={saveDealerAccess} className="flex items-center gap-2">
-                    <Save className="w-4 h-4" />
-                    Save Changes
-                  </Button>
-                </div>
+                <CardTitle>Dealer Access Control & URLs</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {dealers.length === 0 ? (
                     <p className="text-slate-500 text-center py-8">No dealers configured</p>
                   ) : (
-                    dealers.map((dealer) => {
-                      const code = dealerCodes[dealer] || "no-code";
-                      const fullUrl = `${window.location.origin}/dealer/${dealer}-${code}`;
+                    dealers.map((dealerSlug) => {
+                      const config = dealerConfigs[dealerSlug];
+                      if (!config) return null;
+                      
+                      const fullUrl = `${window.location.origin}/dealer/${dealerSlug}-${config.code}`;
                       
                       return (
-                        <div key={dealer} className="p-4 bg-slate-50 rounded-lg space-y-3">
+                        <div key={dealerSlug} className="p-4 bg-slate-50 rounded-lg space-y-3">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <span className="font-medium text-lg">{dealer}</span>
-                              <Badge variant={dealerAccess[dealer] ? "default" : "secondary"}>
-                                {dealerAccess[dealer] ? "Active" : "Inactive"}
+                              <span className="font-medium text-lg">{config.name}</span>
+                              <Badge variant={config.isActive ? "default" : "secondary"}>
+                                {config.isActive ? "Active" : "Inactive"}
                               </Badge>
+                              {config.powerbiUrl && (
+                                <Badge variant="outline" className="text-purple-600">
+                                  PowerBI
+                                </Badge>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => toggleDealerAccess(dealer)}
+                                onClick={() => toggleDealerAccess(dealerSlug)}
                               >
-                                {dealerAccess[dealer] ? "Deactivate" : "Activate"}
+                                {config.isActive ? "Deactivate" : "Activate"}
                               </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => removeDealer(dealer)}
+                                onClick={() => removeDealer(dealerSlug)}
                                 className="text-red-600 hover:text-red-700"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -258,11 +288,11 @@ export default function Admin() {
                           <div className="space-y-2">
                             <div className="flex items-center gap-2">
                               <Label className="text-sm font-medium">Access Code:</Label>
-                              <code className="bg-white px-2 py-1 rounded text-sm font-mono">{code}</code>
+                              <code className="bg-white px-2 py-1 rounded text-sm font-mono">{config.code}</code>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => regenerateCode(dealer)}
+                                onClick={() => regenerateCode(dealerSlug)}
                                 className="text-xs"
                               >
                                 Regenerate
@@ -278,7 +308,7 @@ export default function Admin() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => copyDealerUrl(dealer)}
+                                  onClick={() => copyDealerUrl(dealerSlug)}
                                   className="flex items-center gap-1"
                                 >
                                   <Copy className="w-3 h-3" />
@@ -328,9 +358,14 @@ export default function Admin() {
                       onChange={(e) => setSelectedDealer(e.target.value)}
                     >
                       <option value="">Choose a dealer...</option>
-                      {dealers.filter(d => dealerAccess[d]).map((dealer) => (
-                        <option key={dealer} value={dealer}>{dealer}</option>
-                      ))}
+                      {activeDealers.map((dealerSlug) => {
+                        const config = dealerConfigs[dealerSlug];
+                        return (
+                          <option key={dealerSlug} value={dealerSlug}>
+                            {config?.name || dealerSlug}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>
@@ -363,42 +398,47 @@ export default function Admin() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {Object.keys(powerbiConfigs).length === 0 ? (
+                  {dealersWithPowerbi.length === 0 ? (
                     <p className="text-slate-500 text-center py-8">No PowerBI configurations found</p>
                   ) : (
-                    Object.entries(powerbiConfigs).map(([dealer, url]) => (
-                      <div key={dealer} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium">{dealer}</div>
-                          <div className="text-sm text-slate-500 truncate">{url}</div>
-                        </div>
-                        <div className="flex items-center gap-2 ml-4">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            asChild
-                          >
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1"
+                    dealersWithPowerbi.map((dealerSlug) => {
+                      const config = dealerConfigs[dealerSlug];
+                      if (!config?.powerbiUrl) return null;
+                      
+                      return (
+                        <div key={dealerSlug} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium">{config.name}</div>
+                            <div className="text-sm text-slate-500 truncate">{config.powerbiUrl}</div>
+                          </div>
+                          <div className="flex items-center gap-2 ml-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              asChild
                             >
-                              <ExternalLink className="w-3 h-3" />
-                              Test
-                            </a>
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => removePowerbiConfig(dealer)}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                              <a
+                                href={config.powerbiUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                Test
+                              </a>
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => removePowerbiConfig(dealerSlug)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </CardContent>
