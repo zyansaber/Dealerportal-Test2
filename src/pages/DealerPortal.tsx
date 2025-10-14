@@ -1,10 +1,11 @@
 // src/pages/DealerPortal.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Download } from "lucide-react";
+import { Download, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import Sidebar from "@/components/Sidebar";
 import OrderList from "@/components/OrderList";
 import {
@@ -12,7 +13,9 @@ import {
   subscribeToSpecPlan,
   subscribeToDateTrack,
 } from "@/lib/firebase";
+import { subscribeToDealerConfig } from "@/lib/dealerConfig";
 import type { ScheduleItem, SpecPlan, DateTrack } from "@/types";
+import type { DealerConfig } from "@/types/dealer";
 import * as XLSX from "xlsx";
 
 /** 将 URL 中的 dealerId 还原为真实的 slug（去掉随机后缀 -xxxxxx） */
@@ -43,7 +46,9 @@ export default function DealerPortal() {
   const [allOrders, setAllOrders] = useState<ScheduleItem[]>([]);
   const [specPlans, setSpecPlans] = useState<SpecPlan>({});
   const [dateTracks, setDateTracks] = useState<DateTrack>({});
+  const [dealerConfig, setDealerConfig] = useState<DealerConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [configLoading, setConfigLoading] = useState(true);
   
   // 新增过滤状态
   const [searchTerm, setSearchTerm] = useState("");
@@ -64,6 +69,18 @@ export default function DealerPortal() {
       unsubDateTrack?.();
     };
   }, []);
+
+  // 订阅经销商配置
+  useEffect(() => {
+    if (!dealerSlug) return;
+
+    const unsubConfig = subscribeToDealerConfig(dealerSlug, (config) => {
+      setDealerConfig(config);
+      setConfigLoading(false);
+    });
+
+    return unsubConfig;
+  }, [dealerSlug]);
 
   // 只展示当前 dealer 的订单
   const dealerOrders = useMemo(() => {
@@ -97,13 +114,22 @@ export default function DealerPortal() {
     });
   }, [dealerOrders, selectedModel, selectedStatus, searchTerm]);
 
-  // 展示用的 Dealer 名称：优先来自订单里的原始 Dealer 文本，否则用 slug 美化
+  // 展示用的 Dealer 名称：优先来自配置，其次订单里的原始 Dealer 文本，否则用 slug 美化
   const dealerDisplayName = useMemo(() => {
+    if (dealerConfig?.name) return dealerConfig.name;
+    
     const fromOrder = dealerOrders[0]?.Dealer;
     return fromOrder && fromOrder.trim().length > 0
       ? fromOrder
       : prettifyDealerName(dealerSlug);
-  }, [dealerOrders, dealerSlug]);
+  }, [dealerConfig, dealerOrders, dealerSlug]);
+
+  // 检查访问权限
+  const hasAccess = useMemo(() => {
+    if (configLoading) return true; // 加载中时假设有权限
+    if (!dealerConfig) return false; // 没有配置则无权限
+    return dealerConfig.isActive; // 根据配置的激活状态
+  }, [dealerConfig, configLoading]);
 
   // 获取所有可选项
   const filterOptions = useMemo(() => {
@@ -163,6 +189,39 @@ export default function DealerPortal() {
       console.error("Export excel failed:", err);
     }
   };
+
+  // 如果没有访问权限，显示错误页面
+  if (!configLoading && !hasAccess) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <Card className="max-w-md">
+          <CardContent className="text-center py-16">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-red-600" />
+            </div>
+            <CardTitle className="text-xl text-slate-700 mb-2">
+              Access Denied
+            </CardTitle>
+            <p className="text-slate-500 mb-6">
+              This dealer portal is currently inactive or does not exist. 
+              Please contact the administrator for access.
+            </p>
+            <p className="text-sm text-slate-400">
+              Dealer: {dealerDisplayName}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (loading || configLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-slate-600">Loading dealer portal...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen">
@@ -227,9 +286,7 @@ export default function DealerPortal() {
         </div>
 
         {/* Content */}
-        {loading ? (
-          <div className="text-muted-foreground">Loading…</div>
-        ) : filteredOrders.length === 0 ? (
+        {filteredOrders.length === 0 ? (
           <div className="text-muted-foreground">
             {dealerOrders.length === 0 ? (
               <>No orders found for <span className="font-medium">{dealerDisplayName}</span>.</>
