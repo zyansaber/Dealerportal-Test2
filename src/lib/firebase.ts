@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, off } from "firebase/database";
+import { getDatabase, ref, onValue, off, set, get, remove } from "firebase/database";
 import type { ScheduleItem, SpecPlan, DateTrack } from "@/types";
 
 const firebaseConfig = {
@@ -84,6 +84,81 @@ export const subscribeToDateTrack = (
 
   return () => unsubList.forEach((u) => u && u());
 };
+
+/** -------------------- Dealer Config Functions -------------------- */
+// 订阅所有经销商配置
+export const subscribeAllDealerConfigs = (callback: (data: any) => void) => {
+  const configsRef = ref(database, "dealerConfigs");
+  
+  const handler = (snapshot: any) => {
+    const data = snapshot.val();
+    callback(data || {});
+  };
+  
+  onValue(configsRef, handler);
+  return () => off(configsRef, "value", handler);
+};
+
+// 订阅单个经销商配置
+export const subscribeDealerConfig = (dealerSlug: string, callback: (data: any) => void) => {
+  const configRef = ref(database, `dealerConfigs/${dealerSlug}`);
+  
+  const handler = (snapshot: any) => {
+    const data = snapshot.val();
+    callback(data || null);
+  };
+  
+  onValue(configRef, handler);
+  return () => off(configRef, "value", handler);
+};
+
+// 设置经销商配置
+export const setDealerConfig = async (dealerSlug: string, config: any) => {
+  const configRef = ref(database, `dealerConfigs/${dealerSlug}`);
+  await set(configRef, {
+    ...config,
+    slug: dealerSlug,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+// 删除经销商配置
+export const removeDealerConfig = async (dealerSlug: string) => {
+  const configRef = ref(database, `dealerConfigs/${dealerSlug}`);
+  await remove(configRef);
+};
+
+// 设置PowerBI URL
+export const setPowerbiUrl = async (dealerSlug: string, url: string) => {
+  const urlRef = ref(database, `dealerConfigs/${dealerSlug}/powerbi_url`);
+  await set(urlRef, url);
+  
+  // 同时更新 updatedAt
+  const updatedAtRef = ref(database, `dealerConfigs/${dealerSlug}/updatedAt`);
+  await set(updatedAtRef, new Date().toISOString());
+};
+
+// 获取PowerBI URL
+export const getPowerbiUrl = async (dealerSlug: string): Promise<string | null> => {
+  const urlRef = ref(database, `dealerConfigs/${dealerSlug}/powerbi_url`);
+  const snapshot = await get(urlRef);
+  return snapshot.exists() ? snapshot.val() : null;
+};
+
+// 生成随机6位字符串
+export function generateRandomCode(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+// 将dealer名称转换为slug
+export function dealerNameToSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
 
 /** -------------------- 工具函数（保留你的排序/格式化） -------------------- */
 // 解析 dd/mm/yyyy 格式的日期
