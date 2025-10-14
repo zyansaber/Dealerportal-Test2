@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, off, get, set } from "firebase/database";
+import { getDatabase, ref, onValue, off } from "firebase/database";
 import type { ScheduleItem, SpecPlan, DateTrack } from "@/types";
 
 const firebaseConfig = {
@@ -154,37 +154,3 @@ export function subscribeToReallocation(cb: (value: any) => void) {
   onValue(r, handler);
   return () => off(r, "value", handler);
 }
-
-// ===== Dealer Admin Config (Realtime Database) =====
-export type DealerConfig = {
-  access?: boolean;        // on/off access
-  code?: string;           // 6-char access code
-  powerbi_url?: string;    // dealer dashboard PowerBI url
-};
-
-export const subscribeDealerConfig = (dealerSlug: string, callback: (cfg: DealerConfig | null) => void) => {
-  const cfgRef = ref(database, `dealer_config/${dealerSlug}`);
-  const unsub = onValue(cfgRef, (snap) => {
-    callback((snap.val() as DealerConfig) ?? null);
-  });
-  return () => unsub();
-};
-
-export const setDealerConfig = async (dealerSlug: string, partial: DealerConfig | null) => {
-  const cfgRef = ref(database, `dealer_config/${dealerSlug}`);
-  if (partial === null) {
-    await set(cfgRef, null);
-  } else {
-    const snap = await get(cfgRef);
-    const oldVal = (snap.exists() ? snap.val() : {}) as DealerConfig;
-    await set(cfgRef, { ...oldVal, ...partial });
-  }
-};
-
-export const subscribeAllDealerConfigs = (callback: (all: Record<string, DealerConfig>) => void) => {
-  const cfgRef = ref(database, `dealer_config`);
-  const unsub = onValue(cfgRef, (snap) => {
-    callback((snap.val() as Record<string, DealerConfig>) ?? {});
-  });
-  return () => unsub();
-};
