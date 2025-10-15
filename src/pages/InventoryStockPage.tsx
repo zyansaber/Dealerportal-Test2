@@ -7,6 +7,7 @@ import {
   subscribeToSchedule,
   subscribeToStock,
   subscribeToReallocation,
+  database, // ✅ 引入 Realtime DB 实例
 } from "@/lib/firebase";
 import type { ScheduleItem } from "@/types";
 
@@ -21,6 +22,9 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import emailjs from "emailjs-com";
+
+// ✅ Firebase 写回所需
+import { ref, update } from "firebase/database";
 
 type AnyMap = Record<string, any>;
 type Row = {
@@ -101,7 +105,7 @@ export default function InventoryStockPage() {
   const [specByChassis, setSpecByChassis] = useState<Record<string, string>>({});
   const [planByChassis, setPlanByChassis] = useState<Record<string, string>>({});
 
-  // EmailJS配置
+  // EmailJS配置（维持你的写法）
   const EMAIL_SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID || "";
   const EMAIL_TEMPLATE = "template_zg5akbj"; // 指定的template
   const EMAIL_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || "";
@@ -135,22 +139,17 @@ export default function InventoryStockPage() {
 
     // 2) Spec/Plan：spec_plan数据结构修复
     const unsubSpecPlan = subscribeToSpecPlan((data: any) => {
-      console.log("spec_plan data:", data); // 调试用
-      
-      // 处理spec_plan数据，按您提供的结构
+      // 处理spec_plan数据，按你提供的结构
       const specMap: Record<string, string> = {};
       const planMap: Record<string, string> = {};
       
       if (data && typeof data === 'object') {
-        // 遍历所有chassis记录
         Object.keys(data).forEach(chassisKey => {
           const chassisData = data[chassisKey];
           if (chassisData && typeof chassisData === 'object') {
-            // 检查是否有spec字段
             if (chassisData.spec && typeof chassisData.spec === 'string') {
               specMap[chassisKey] = chassisData.spec;
             }
-            // 检查是否有plan字段
             if (chassisData.plan && typeof chassisData.plan === 'string') {
               planMap[chassisKey] = chassisData.plan;
             }
@@ -177,9 +176,15 @@ export default function InventoryStockPage() {
         for (const [chassis, detailsRaw] of Object.entries(latestStock || {})) {
           const details = (detailsRaw || {}) as AnyMap;
 
-          // 已下单 & SRM 过滤
+          // ✅ 已下单 & SRM 过滤（保留你原逻辑）
           if (String(details?.ordered).toLowerCase() === "true") continue;
           if (typeof chassis === "string" && chassis.startsWith("SRM")) continue;
+
+          // ✅ 新增：只要存在 orderedBy/orderedby，也视为已下单，隐藏在库存表
+          const hasOrderedBy =
+            (details?.orderedBy != null && String(details.orderedBy) !== "") ||
+            (details?.orderedby != null && String(details.orderedby) !== "");
+          if (hasOrderedBy) continue;
 
           // reallocation：仅 Snowy Stock
           const realloc = latestRealloc?.[chassis];
@@ -362,7 +367,7 @@ export default function InventoryStockPage() {
     }
   };
 
-  // —— Order（下单邮件）使用指定的template —— //
+  // —— Order（下单邮件）使用指定的template + ✅ 成功后写回 Firebase —— //
   async function handleOrder(row: Row) {
     if (!EMAIL_SERVICE || !EMAIL_PUBLIC_KEY) {
       toast.error("EmailJS configuration missing. Cannot send order email.");
@@ -371,7 +376,7 @@ export default function InventoryStockPage() {
     
     try {
       // 构建详细信息字符串
-      const detailsArray = [];
+      const detailsArray: string[] = [];
       detailsArray.push(`Model: ${row.displayModel || row.model || "N/A"}`);
       detailsArray.push(`Regent Production: ${row.regentProduction || "Not Started"}`);
       
@@ -389,18 +394,27 @@ export default function InventoryStockPage() {
         EMAIL_SERVICE,
         EMAIL_TEMPLATE,
         {
-          chassis: row.chassis, // {{chassis}}
-          ordered_by: dealerDisplayName, // {{ordered_by}} - 默认为当前页面的dealerSlug
-          order_time: currentTime, // {{order_time}}
-          details: detailsArray.join("\n"), // {{details}}
+          chassis: row.chassis,           // {{chassis}}
+          ordered_by: dealerDisplayName,  // {{ordered_by}}
+          order_time: currentTime,        // {{order_time}}
+          details: detailsArray.join("\n")// {{details}}
         },
         EMAIL_PUBLIC_KEY
       );
+
+      // ✅ 邮件成功 → 立刻写回 stockorder/<chassis>
+      try {
+        await update(ref(database, `stockorder/${row.chassis}`), {
+          ordered: true,
+          orderedBy: dealerDisplayName,
+          orderedAt: currentTime,
+        });
+      } catch (e) {
+        console.error("Failed to update stockorder in Firebase:", e);
+        toast.error("Order sent, but failed to update stock status in Firebase.");
+      }
       
       toast.success(`Order email sent successfully for chassis ${row.chassis}`);
-      
-      // TODO: 更新Firebase stockorder中的ordered和orderedBy字段
-      // updateStockOrder(row.chassis, { ordered: true, orderedBy: dealerDisplayName, orderedAt: currentTime });
       
     } catch (e) {
       console.error("EmailJS error:", e);
