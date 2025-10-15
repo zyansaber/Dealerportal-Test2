@@ -1,11 +1,12 @@
 // src/pages/UnsignedEmptySlots.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Download } from "lucide-react";
+import { Download, FileX, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Sidebar from "@/components/Sidebar";
 import { subscribeToSchedule } from "@/lib/firebase";
 import type { ScheduleItem } from "@/types";
@@ -44,7 +45,7 @@ function parseDDMMYYYY(dateStr?: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** 计算 Days Escaped（dd/mm/yyyy） */
+/** Days Escaped（dd/mm/yyyy） */
 function calculateDaysEscaped(orderReceivedDate?: string): number | string {
   const d = parseDDMMYYYY(orderReceivedDate);
   if (!d) return "-";
@@ -56,7 +57,7 @@ function calculateDaysEscaped(orderReceivedDate?: string): number | string {
   return diffDays >= 0 ? diffDays : 0;
 }
 
-/** 计算：距离今天还有多少周（小数），若无法解析返回 null */
+/** 距今天还有多少周（小数），无法解析返回 null */
 function weeksUntil(dateStr?: string): number | null {
   const d = parseDDMMYYYY(dateStr);
   if (!d) return null;
@@ -131,6 +132,14 @@ export default function UnsignedEmptySlots() {
     });
   }, [dealerOrders]);
 
+  /** Red Slots：在 Empty 集合中，FPD − 今天 < 22 周 */
+  const redSlotsCount = useMemo(() => {
+    return emptyOrders.reduce((acc, order) => {
+      const wk = weeksUntil(order?.["Forecast Production Date"]);
+      return acc + (wk !== null && wk < 22 ? 1 : 0);
+    }, 0);
+  }, [emptyOrders]);
+
   /** 当前 tab 数据 */
   const currentOrders = activeTab === "unsigned" ? unsignedOrders : emptyOrders;
 
@@ -173,7 +182,6 @@ export default function UnsignedEmptySlots() {
           "Days Escaped": calculateDaysEscaped(order?.["Order Received Date"]),
         };
       } else {
-        // empty 表导出把 “Empty Slots” 判定也加上
         const wk = weeksUntil(order?.["Forecast Production Date"]);
         const emptySlotsTag = wk !== null && wk < 22 ? "Red Slots" : "";
         return {
@@ -227,6 +235,39 @@ export default function UnsignedEmptySlots() {
               <Download className="w-4 h-4 mr-2" />
               Export Excel
             </Button>
+          </div>
+
+          {/* Top KPI Cards */}
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Unsigned */}
+            <Card className="overflow-hidden border-slate-200">
+              <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-500" />
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-600 flex items-center gap-2">
+                  <FileX className="w-4 h-4 text-indigo-600" />
+                  Unsigned
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-3xl font-bold tracking-tight">{unsignedOrders.length}</div>
+                <p className="text-xs text-slate-500 mt-1">Have chassis but no signed plans</p>
+              </CardContent>
+            </Card>
+
+            {/* Red Slots */}
+            <Card className="overflow-hidden border-slate-200">
+              <div className="h-1 w-full bg-gradient-to-r from-rose-500 via-red-500 to-orange-500" />
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-600 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                  Red Slots
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="text-3xl font-bold tracking-tight text-red-600">{redSlotsCount}</div>
+                <p className="text-xs text-slate-500 mt-1">Empty slots with FPD &lt; 22 weeks</p>
+              </CardContent>
+            </Card>
           </div>
         </header>
 
@@ -300,9 +341,7 @@ export default function UnsignedEmptySlots() {
                     let emptySlotTag = "";
                     if (activeTab === "empty") {
                       const wk = weeksUntil(order?.["Forecast Production Date"]);
-                      if (wk !== null && wk < 22) {
-                        emptySlotTag = "Red Slots";
-                      }
+                      if (wk !== null && wk < 22) emptySlotTag = "Red Slots";
                     }
 
                     return (
