@@ -10,22 +10,23 @@ import Sidebar from "@/components/Sidebar";
 import type { ScheduleItem } from "@/types";
 import * as XLSX from "xlsx";
 
+// 直接订阅 schedule 原始数据（绕开任何封装过滤）
 import { database } from "@/lib/firebase";
 import { ref as dbRef, onValue, off as offListener } from "firebase/database";
 
-/* ---------------- utils（全部字符串安全化） ---------------- */
+/* ---------------- utils（安全与格式） ---------------- */
 const lower = (v: any) => String(v ?? "").toLowerCase();
 const hasKey = (obj: any, key: string) => Object.prototype.hasOwnProperty.call(obj ?? {}, key);
 const isRec = (x: any): x is Record<string, any> => !!x && typeof x === "object" && !Array.isArray(x);
 
-/** 将 URL 中的 dealerId 还原为真实的 slug（去掉随机后缀 -xxxxxx） */
+/** URL 中的 dealerId 去掉末尾随机码 -xxxxxx */
 function normalizeDealerSlug(raw?: string): string {
   const slug = lower(raw);
   const m = slug.match(/^(.*?)-([a-z0-9]{6})$/);
   return m ? m[1] : slug;
 }
 
-/** 把 Dealer 文本转为 slug 用于比较 */
+/** 把 Dealer 文本变为 slug（用于比较） */
 function slugifyDealerName(name?: any): string {
   return String(name ?? "")
     .toLowerCase()
@@ -33,7 +34,7 @@ function slugifyDealerName(name?: any): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** 将 slug 转成人看得懂的 Dealer 名称 */
+/** 将 slug 转成人类可读名称 */
 function prettifyDealerName(slug: string): string {
   const s = slug.replace(/-/g, " ").trim();
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -47,7 +48,7 @@ function calculateDaysEscaped(input?: any): number | string {
     const parts = str.split("/");
     if (parts.length !== 3) return "-";
     const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
+    const month = parseInt(parts[1], 10) - 1; // 0-based
     const year = parseInt(parts[2], 10);
     if (isNaN(day) || isNaN(month) || isNaN(year)) return "-";
     const d = new Date(year, month, day);
@@ -70,7 +71,7 @@ export default function UnsignedEmptySlots() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"unsigned" | "empty">("unsigned");
 
-  // 直接订阅 schedule 原始数据，避免任何上游过滤
+  /* -------- 直接订阅 Firebase/schedule 原始数据 -------- */
   useEffect(() => {
     const r = dbRef(database, "schedule");
     const unsub = onValue(
@@ -85,10 +86,14 @@ export default function UnsignedEmptySlots() {
         setAllOrders(list);
         setLoading(false);
 
-        // 调试：看看 dealer 下 “缺 Chassis 键” 的数量
+        // 调试：看看当前 dealer 下“缺 Chassis 键”的数量
         const dealerList = list.filter((o: any) => isRec(o) && slugifyDealerName(o.Dealer) === dealerSlug);
         const missingKey = dealerList.filter((o: any) => !hasKey(o, "Chassis"));
-        console.debug("[UnsignedEmptySlots] total:", list.length, "dealer:", dealerList.length, 'missing "Chassis" key:', missingKey.length);
+        console.debug(
+          "[UnsignedEmptySlots] total:", list.length,
+          "dealer:", dealerList.length,
+          'missing "Chassis" key:', missingKey.length
+        );
       },
       (err) => {
         console.error("subscribe schedule error:", err);
@@ -101,44 +106,53 @@ export default function UnsignedEmptySlots() {
     };
   }, [dealerSlug]);
 
-  // 当前 dealer 的记录（全部转字符串比较）
+  /* -------- 过滤成当前 dealer 的记录 -------- */
   const dealerOrders = useMemo(() => {
     if (!dealerSlug) return [];
-    return (allOrders || []).filter((o: any) => isRec(o) && slugifyDealerName(o.Dealer) === dealerSlug);
+    return (allOrders || []).filter(
+      (o: any) => isRec(o) && slugifyDealerName(o.Dealer) === dealerSlug
+    );
   }, [allOrders, dealerSlug]);
 
-  // Unsigned：Signed Plans Received 为 No / 空
+  /* -------- Unsigned：有 Chassis 且不为空，且 Signed Plans Received 为空或 "No" -------- */
   const unsignedOrders = useMemo(() => {
     return dealerOrders.filter((order: any) => {
       if (!isRec(order)) return false;
+      const hasChassis = hasKey(order, "Chassis") && String(order.Chassis ?? "") !== "";
       const v = lower(order["Signed Plans Received"]);
-      return v === "" || v === "no";
+      const isUnsigned = v === "" || v === "no";
+      return hasChassis && isUnsigned;
     });
   }, [dealerOrders]);
 
-  // Empty：当前 dealer 且 “没有 Chassis 这个字段（key 缺失）”
+  /* -------- Empty Slots：严格“缺少 Chassis 这个字段（key 不存在）” -------- */
   const emptyOrders = useMemo(() => {
     return dealerOrders.filter((order: any) => {
       if (!isRec(order)) return false;
-      const dealerOk = !!String(order.Dealer ?? "").trim() && slugifyDealerName(order.Dealer) === dealerSlug;
-      const noChassisField = !hasKey(order, "Chassis"); // 严格“缺键”
+      const dealerOk =
+        String(order.Dealer ?? "").trim() !== "" &&
+        slugifyDealerName(order.Dealer) === dealerSlug;
+
+      const noChassisField = !hasKey(order, "Chassis"); // 严格缺键
       return dealerOk && noChassisField;
     });
 
-    // 如果你希望把 Chassis 为 "" / null 也视为 empty，把上面的 return 换成：
+    // 如果你希望把 Chassis 为 ""/null 也视为 empty，把上面 return 替换为如下：
     // return dealerOrders.filter((order: any) => {
     //   if (!isRec(order)) return false;
-    //   const dealerOk = !!String(order.Dealer ?? "").trim() && slugifyDealerName(order.Dealer) === dealerSlug;
+    //   const dealerOk =
+    //     String(order.Dealer ?? "").trim() !== "" &&
+    //     slugifyDealerName(order.Dealer) === dealerSlug;
     //   const trulyMissing = !hasKey(order, "Chassis");
-    //   const emptyStringOrNull = hasKey(order, "Chassis") && (order.Chassis == null || String(order.Chassis) === "");
-    //   return dealerOk && (trulyMissing || emptyStringOrNull);
+    //   const emptyValue = hasKey(order, "Chassis") && (order.Chassis == null || String(order.Chassis) === "");
+    //   return dealerOk && (trulyMissing || emptyValue);
     // });
   }, [dealerOrders, dealerSlug]);
 
-  // 当前显示的数据源
+  /* -------- 当前显示的数据源 -------- */
   const currentOrders = activeTab === "unsigned" ? unsignedOrders : emptyOrders;
 
-  // 搜索过滤（所有字段先 String 再 lower）
+  /* -------- 搜索过滤（所有字段先 String 再 lower） -------- */
   const searchFilteredOrders = useMemo(() => {
     if (!searchTerm) return currentOrders;
     const s = lower(searchTerm);
@@ -154,13 +168,15 @@ export default function UnsignedEmptySlots() {
     });
   }, [currentOrders, searchTerm]);
 
-  // dealer 显示名
+  /* -------- dealer 显示名 -------- */
   const dealerDisplayName = useMemo(() => {
     const fromOrder = isRec(dealerOrders[0]) ? dealerOrders[0].Dealer : undefined;
-    return String(fromOrder ?? "").trim().length > 0 ? String(fromOrder) : prettifyDealerName(dealerSlug);
+    return String(fromOrder ?? "").trim().length > 0
+      ? String(fromOrder)
+      : prettifyDealerName(dealerSlug);
   }, [dealerOrders, dealerSlug]);
 
-  // 导出 Excel
+  /* -------- 导出 Excel -------- */
   const exportToExcel = () => {
     if (searchFilteredOrders.length === 0) return;
 
@@ -169,7 +185,6 @@ export default function UnsignedEmptySlots() {
         "Forecast Production Date": String(order?.["Forecast Production Date"] ?? ""),
         Dealer: String(order?.Dealer ?? ""),
       };
-
       if (activeTab === "unsigned") {
         return {
           ...base,
@@ -182,7 +197,7 @@ export default function UnsignedEmptySlots() {
           "Days Escaped": calculateDaysEscaped(order?.["Order Received Date"]),
         };
       }
-      return base;
+      return base; // Empty 仅导出基础列，避免误导
     });
 
     try {
@@ -268,7 +283,8 @@ export default function UnsignedEmptySlots() {
           ) : searchFilteredOrders.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               {currentOrders.length === 0 ? (
-                <>No {activeTab === "unsigned" ? "unsigned orders" : "empty slots"} found for{" "}
+                <>
+                  No {activeTab === "unsigned" ? "unsigned orders" : "empty slots"} found for{" "}
                   <span className="font-medium">{dealerDisplayName}</span>.
                 </>
               ) : (
