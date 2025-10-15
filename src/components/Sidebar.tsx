@@ -14,9 +14,13 @@ interface SidebarProps {
   showStats?: boolean;
 }
 
-export default function Sidebar({ 
-  orders, 
-  selectedDealer, 
+/** ---- 安全工具函数：统一兜底，避免 undefined.toLowerCase 报错 ---- */
+const toStr = (v: any) => String(v ?? "");
+const lower = (v: any) => toStr(v).toLowerCase();
+
+export default function Sidebar({
+  orders,
+  selectedDealer,
   onDealerSelect,
   hideOtherDealers = false,
   currentDealerName,
@@ -24,19 +28,17 @@ export default function Sidebar({
 }: SidebarProps) {
   const { dealerSlug } = useParams<{ dealerSlug: string }>();
 
-  // 计算基础统计数据（仅保留总订单数）
+  // 计算基础统计数据（仅保留总订单数/stock/customer）
   const stats = useMemo(() => {
-    const total = orders.length;
-    const stockVehicles = orders.filter(order => 
-      order.Customer.toLowerCase().endsWith('stock')
+    const total = Array.isArray(orders) ? orders.length : 0;
+
+    const stockVehicles = (Array.isArray(orders) ? orders : []).filter(
+      (order) => lower(order?.Customer).endsWith("stock")
     ).length;
-    const customerVehicles = total - stockVehicles;
-    
-    return {
-      total,
-      stockVehicles,
-      customerVehicles
-    };
+
+    const customerVehicles = Math.max(total - stockVehicles, 0);
+
+    return { total, stockVehicles, customerVehicles };
   }, [orders]);
 
   // 获取显示的dealer名称
@@ -47,36 +49,16 @@ export default function Sidebar({
     if (selectedDealer === "all") {
       return "All Dealers";
     }
-    return selectedDealer;
+    return selectedDealer || "Dealer Portal";
   }, [selectedDealer, hideOtherDealers, currentDealerName]);
 
   // 导航路径
-  const basePath = dealerSlug ? `/dealer/${dealerSlug}` : '/';
+  const basePath = dealerSlug ? `/dealer/${dealerSlug}` : "/";
   const navigationItems = [
-    {
-      path: basePath,
-      label: "Dealer Orders",
-      icon: BarChart3,
-      end: true
-    },
-    {
-      path: `${basePath}/inventorystock`,
-      label: "Factory Inventory",
-      icon: Factory,
-      end: true
-    },
-    {
-      path: `${basePath}/unsigned`,
-      label: "Unsigned & Empty Slots",
-      icon: FileX,
-      end: true
-    },
-    {
-      path: `${basePath}/dashboard`,
-      label: "Dashboard",
-      icon: Package,
-      end: true
-    }
+    { path: basePath, label: "Dealer Orders", icon: BarChart3, end: true },
+    { path: `${basePath}/inventorystock`, label: "Factory Inventory", icon: Factory, end: true },
+    { path: `${basePath}/unsigned`, label: "Unsigned & Empty Slots", icon: FileX, end: true },
+    { path: `${basePath}/dashboard`, label: "Dashboard", icon: Package, end: true }
   ];
 
   return (
@@ -103,8 +85,8 @@ export default function Sidebar({
             {navigationItems.map((item) => (
               <NavLink key={item.path} to={item.path} end={item.end}>
                 {({ isActive }) => (
-                  <Button 
-                    variant={isActive ? "default" : "ghost"} 
+                  <Button
+                    variant={isActive ? "default" : "ghost"}
                     className="w-full justify-start"
                   >
                     <item.icon className="w-4 h-4 mr-3" />
@@ -132,7 +114,7 @@ export default function Sidebar({
       {showStats && (
         <div className="p-4 space-y-4">
           <h3 className="text-sm font-medium text-slate-700">
-            {hideOtherDealers ? `${displayDealerName} Overview` : `${displayDealerName} Overview`}
+            {displayDealerName} Overview
           </h3>
           <div className="grid grid-cols-1 gap-3">
             <Card>
