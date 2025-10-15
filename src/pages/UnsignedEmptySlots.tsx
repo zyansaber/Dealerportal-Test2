@@ -11,7 +11,7 @@ import { subscribeToSchedule } from "@/lib/firebase";
 import type { ScheduleItem } from "@/types";
 import * as XLSX from "xlsx";
 
-/** ---- 小工具：统一做安全转换（避免任何 toLowerCase/包含 判断报错） ---- */
+/** ---- 安全工具函数 ---- */
 const toStr = (v: any) => String(v ?? "");
 const lower = (v: any) => toStr(v).toLowerCase();
 const hasKey = (obj: any, key: string) => Object.prototype.hasOwnProperty.call(obj ?? {}, key);
@@ -80,6 +80,22 @@ export default function UnsignedEmptySlots() {
     if (!dealerSlug) return [];
     return (allOrders || []).filter((order) => slugifyDealerName(order?.Dealer) === dealerSlug);
   }, [allOrders, dealerSlug]);
+
+  /** 给 Sidebar 的“安全版本”订单（全部关键字符串字段都强制转为字符串，防止 Sidebar 内部 .toLowerCase() 报错） */
+  const sanitizedDealerOrders = useMemo(() => {
+    return dealerOrders.map((o) => ({
+      ...o,
+      Dealer: toStr(o?.Dealer),
+      Customer: toStr(o?.Customer),
+      Model: toStr(o?.Model),
+      // 这里特意把 Chassis 也转成字符串 —— 只影响 Sidebar 的展示/统计，不影响本页 Empty 的“缺键”判断
+      Chassis: hasKey(o, "Chassis") ? toStr(o?.Chassis) : undefined,
+      "Forecast Production Date": toStr(o?.["Forecast Production Date"]),
+      "Signed Plans Received": toStr(o?.["Signed Plans Received"]),
+      "Order Received Date": toStr(o?.["Order Received Date"]),
+      "Model Year": toStr(o?.["Model Year"]),
+    }));
+  }, [dealerOrders]);
 
   /** Unsigned：必须存在 Chassis 字段且非空；“Signed Plans Received”为 No 或空 */
   const unsignedOrders = useMemo(() => {
@@ -165,7 +181,7 @@ export default function UnsignedEmptySlots() {
   return (
     <div className="flex min-h-screen">
       <Sidebar
-        orders={dealerOrders}
+        orders={sanitizedDealerOrders}  // ← 这里换成“安全版本”传给 Sidebar
         selectedDealer="locked"
         onDealerSelect={() => {}}
         hideOtherDealers
@@ -218,7 +234,7 @@ export default function UnsignedEmptySlots() {
           </Tabs>
         </div>
 
-        {/* Debug Info（保留可删） */}
+        {/* Debug Info（可删） */}
         <div className="p-4 bg-yellow-50 border-b border-yellow-200">
           <div className="text-sm text-yellow-800">
             Debug: Total dealer orders: {dealerOrders.length}, Empty orders: {emptyOrders.length}, Unsigned orders: {unsignedOrders.length}
