@@ -19,25 +19,32 @@ export { database };
 
 /** -------------------- schedule -------------------- */
 /** 返回未 Finished 且有 Chassis/Customer 的订单数组（保留你的原有行为） */
-export const subscribeToSchedule = (callback: (data: ScheduleItem[]) => void) => {
+// 原来：export const subscribeToSchedule = (callback: (data: ScheduleItem[]) => void) => { ... }
+export const subscribeToSchedule = (
+  callback: (data: ScheduleItem[]) => void,
+  options: { includeNoChassis?: boolean; includeNoCustomer?: boolean; includeFinished?: boolean } = {}
+) => {
+  const { includeNoChassis = false, includeNoCustomer = false, includeFinished = false } = options;
+
   const scheduleRef = ref(database, "schedule");
   onValue(scheduleRef, (snapshot) => {
     const data = snapshot.val();
-    if (data) {
-      const scheduleArray = Object.values(data) as ScheduleItem[];
-      const validOrders = scheduleArray.filter(
-        (item) =>
-          item["Regent Production"] !== "Finished" &&
-          item.Chassis &&
-          item.Customer
-      );
-      callback(validOrders);
-    } else {
-      callback([]);
-    }
+    let arr: ScheduleItem[] = data ? (Object.values(data) as ScheduleItem[]) : [];
+
+    // 逐项过滤，保留默认行为；仅当 options 放开开关时才放宽
+    arr = arr.filter((item) => {
+      if (!includeFinished && item["Regent Production"] === "Finished") return false;
+      if (!includeNoChassis && !item.Chassis) return false;
+      if (!includeNoCustomer && !item.Customer) return false;
+      return true;
+    });
+
+    callback(arr);
   });
+
   return () => off(scheduleRef);
 };
+
 
 /** -------------------- spec_plan -------------------- */
 /** 同时订阅 spec_plan / specPlan / specplan，任一路径有数据就回调（与 DealerPortal 对齐） */
