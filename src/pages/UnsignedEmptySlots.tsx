@@ -10,13 +10,13 @@ import Sidebar from "@/components/Sidebar";
 import type { ScheduleItem } from "@/types";
 import * as XLSX from "xlsx";
 
-// 直接订阅 schedule 原始数据（避免封装里的过滤）
 import { database } from "@/lib/firebase";
 import { ref as dbRef, onValue, off as offListener } from "firebase/database";
 
-/** utils —— 安全小工具 */
+/* ---------------- utils（全部字符串安全化） ---------------- */
 const lower = (v: any) => String(v ?? "").toLowerCase();
 const hasKey = (obj: any, key: string) => Object.prototype.hasOwnProperty.call(obj ?? {}, key);
+const isRec = (x: any): x is Record<string, any> => !!x && typeof x === "object" && !Array.isArray(x);
 
 /** 将 URL 中的 dealerId 还原为真实的 slug（去掉随机后缀 -xxxxxx） */
 function normalizeDealerSlug(raw?: string): string {
@@ -25,7 +25,7 @@ function normalizeDealerSlug(raw?: string): string {
   return m ? m[1] : slug;
 }
 
-/** 和首页一致的 slug 规则（把 Dealer 文本转为 slug，用于比较） */
+/** 把 Dealer 文本转为 slug 用于比较 */
 function slugifyDealerName(name?: any): string {
   return String(name ?? "")
     .toLowerCase()
@@ -33,30 +33,29 @@ function slugifyDealerName(name?: any): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** 将 slug 转成人看得懂的 Dealer 名称（基础美化） */
+/** 将 slug 转成人看得懂的 Dealer 名称 */
 function prettifyDealerName(slug: string): string {
   const s = slug.replace(/-/g, " ").trim();
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** 计算 Days Escaped（今天减去 Order Received Date）- 支持 dd/mm/yyyy */
-function calculateDaysEscaped(orderReceivedDate?: any): number | string {
-  const str = String(orderReceivedDate ?? "").trim();
+/** 计算 Days Escaped（今天减 Order Received Date，dd/mm/yyyy） */
+function calculateDaysEscaped(input?: any): number | string {
+  const str = String(input ?? "").trim();
   if (!str) return "-";
   try {
     const parts = str.split("/");
     if (parts.length !== 3) return "-";
     const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1; // 0-based
+    const month = parseInt(parts[1], 10) - 1;
     const year = parseInt(parts[2], 10);
     if (isNaN(day) || isNaN(month) || isNaN(year)) return "-";
-    const orderDate = new Date(year, month, day);
-    const today = new Date();
-    orderDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    const diffTime = today.getTime() - orderDate.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays >= 0 ? diffDays : 0;
+    const d = new Date(year, month, day);
+    const t = new Date();
+    d.setHours(0, 0, 0, 0);
+    t.setHours(0, 0, 0, 0);
+    const diff = Math.floor((t.getTime() - d.getTime()) / 86400000);
+    return diff >= 0 ? diff : 0;
   } catch {
     return "-";
   }
@@ -71,7 +70,7 @@ export default function UnsignedEmptySlots() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"unsigned" | "empty">("unsigned");
 
-  // 直接订阅原始 schedule
+  // 直接订阅 schedule 原始数据，避免任何上游过滤
   useEffect(() => {
     const r = dbRef(database, "schedule");
     const unsub = onValue(
@@ -80,57 +79,60 @@ export default function UnsignedEmptySlots() {
         const raw = snap.val();
         const list: ScheduleItem[] = raw
           ? Array.isArray(raw)
-            ? (raw as ScheduleItem[]).filter(Boolean)
-            : (Object.values(raw) as ScheduleItem[]).filter(Boolean)
+            ? (raw as any[]).filter(isRec)
+            : (Object.values(raw) as any[]).filter(isRec)
           : [];
         setAllOrders(list);
         setLoading(false);
 
-        // Debug：看看 dealer 下“缺 chassis 键”的数量
-        const dealerList = list.filter((o: any) => slugifyDealerName(o?.Dealer) === dealerSlug);
+        // 调试：看看 dealer 下 “缺 Chassis 键” 的数量
+        const dealerList = list.filter((o: any) => isRec(o) && slugifyDealerName(o.Dealer) === dealerSlug);
         const missingKey = dealerList.filter((o: any) => !hasKey(o, "Chassis"));
-        console.debug(
-          "[UnsignedEmptySlots] total:", list.length,
-          "dealer:", dealerList.length,
-          'missing "Chassis" key:', missingKey.length
-        );
+        console.debug("[UnsignedEmptySlots] total:", list.length, "dealer:", dealerList.length, 'missing "Chassis" key:', missingKey.length);
       },
       (err) => {
         console.error("subscribe schedule error:", err);
         setLoading(false);
       }
     );
-
     return () => {
       try { offListener(r); } catch {}
       try { unsub(); } catch {}
     };
   }, [dealerSlug]);
 
-  // 过滤当前 dealer 的订单（全部转字符串比较，防止 toLowerCase 报错）
+  // 当前 dealer 的记录（全部转字符串比较）
   const dealerOrders = useMemo(() => {
     if (!dealerSlug) return [];
-    return (allOrders || []).filter((o: any) => slugifyDealerName(o?.Dealer) === dealerSlug);
+    return (allOrders || []).filter((o: any) => isRec(o) && slugifyDealerName(o.Dealer) === dealerSlug);
   }, [allOrders, dealerSlug]);
 
-  // Unsigned：Signed Plans Received 为 No / 空（先强转字符串再 lower）
+  // Unsigned：Signed Plans Received 为 No / 空
   const unsignedOrders = useMemo(() => {
     return dealerOrders.filter((order: any) => {
-      const v = lower(order?.["Signed Plans Received"]);
+      if (!isRec(order)) return false;
+      const v = lower(order["Signed Plans Received"]);
       return v === "" || v === "no";
     });
   }, [dealerOrders]);
 
-  // Empty：当前 dealer，且 **没有 Chassis 这个字段（key 缺失）**
+  // Empty：当前 dealer 且 “没有 Chassis 这个字段（key 缺失）”
   const emptyOrders = useMemo(() => {
     return dealerOrders.filter((order: any) => {
-      const dealerOk =
-        !!String(order?.Dealer ?? "").trim() &&
-        slugifyDealerName(order?.Dealer) === dealerSlug;
-
-      const noChassisField = !hasKey(order, "Chassis");
+      if (!isRec(order)) return false;
+      const dealerOk = !!String(order.Dealer ?? "").trim() && slugifyDealerName(order.Dealer) === dealerSlug;
+      const noChassisField = !hasKey(order, "Chassis"); // 严格“缺键”
       return dealerOk && noChassisField;
     });
+
+    // 如果你希望把 Chassis 为 "" / null 也视为 empty，把上面的 return 换成：
+    // return dealerOrders.filter((order: any) => {
+    //   if (!isRec(order)) return false;
+    //   const dealerOk = !!String(order.Dealer ?? "").trim() && slugifyDealerName(order.Dealer) === dealerSlug;
+    //   const trulyMissing = !hasKey(order, "Chassis");
+    //   const emptyStringOrNull = hasKey(order, "Chassis") && (order.Chassis == null || String(order.Chassis) === "");
+    //   return dealerOk && (trulyMissing || emptyStringOrNull);
+    // });
   }, [dealerOrders, dealerSlug]);
 
   // 当前显示的数据源
@@ -141,22 +143,21 @@ export default function UnsignedEmptySlots() {
     if (!searchTerm) return currentOrders;
     const s = lower(searchTerm);
     return currentOrders.filter((o: any) => {
+      if (!isRec(o)) return false;
       return (
-        lower(o?.Chassis).includes(s) ||
-        lower(o?.Customer).includes(s) ||
-        lower(o?.Model).includes(s) ||
-        lower(o?.["Forecast Production Date"]).includes(s) ||
-        lower(o?.Dealer).includes(s)
+        lower(o.Chassis).includes(s) ||
+        lower(o.Customer).includes(s) ||
+        lower(o.Model).includes(s) ||
+        lower(o["Forecast Production Date"]).includes(s) ||
+        lower(o.Dealer).includes(s)
       );
     });
   }, [currentOrders, searchTerm]);
 
   // dealer 显示名
   const dealerDisplayName = useMemo(() => {
-    const fromOrder = (dealerOrders[0] as any)?.Dealer;
-    return String(fromOrder ?? "").trim().length > 0
-      ? String(fromOrder)
-      : prettifyDealerName(dealerSlug);
+    const fromOrder = isRec(dealerOrders[0]) ? dealerOrders[0].Dealer : undefined;
+    return String(fromOrder ?? "").trim().length > 0 ? String(fromOrder) : prettifyDealerName(dealerSlug);
   }, [dealerOrders, dealerSlug]);
 
   // 导出 Excel
@@ -187,9 +188,7 @@ export default function UnsignedEmptySlots() {
     try {
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(excelData);
-      (ws as any)["!cols"] = Object.keys(excelData[0] || {}).map((key) => ({
-        wch: Math.max(key.length, 15),
-      }));
+      (ws as any)["!cols"] = Object.keys(excelData[0] || {}).map((key) => ({ wch: Math.max(key.length, 15) }));
       const date = new Date().toISOString().split("T")[0];
       const tabName = activeTab === "unsigned" ? "Unsigned" : "Empty_Slots";
       const filename = `${dealerDisplayName}_${tabName}_${date}.xlsx`;
@@ -226,11 +225,7 @@ export default function UnsignedEmptySlots() {
               </p>
             </div>
 
-            <Button
-              onClick={exportToExcel}
-              disabled={searchFilteredOrders.length === 0}
-              className="bg-green-600 hover:bg-green-700"
-            >
+            <Button onClick={exportToExcel} disabled={searchFilteredOrders.length === 0} className="bg-green-600 hover:bg-green-700">
               <Download className="w-4 h-4 mr-2" />
               Export Excel
             </Button>
@@ -308,9 +303,7 @@ export default function UnsignedEmptySlots() {
 
                       {activeTab === "unsigned" && (
                         <>
-                          <TableCell>
-                            {String(order?.Chassis ?? "") || <span className="text-red-500 italic">Empty</span>}
-                          </TableCell>
+                          <TableCell>{String(order?.Chassis ?? "") || <span className="text-red-500 italic">Empty</span>}</TableCell>
                           <TableCell>{String(order?.Customer ?? "-")}</TableCell>
                           <TableCell>{String(order?.Model ?? "-")}</TableCell>
                           <TableCell>{String(order?.["Model Year"] ?? "-")}</TableCell>
@@ -318,23 +311,14 @@ export default function UnsignedEmptySlots() {
                             {(() => {
                               const v = lower(order?.["Signed Plans Received"]);
                               const danger = v === "" || v === "no";
-                              return (
-                                <span className={danger ? "text-red-600 font-medium" : ""}>
-                                  {String(order?.["Signed Plans Received"] ?? "No")}
-                                </span>
-                              );
+                              return <span className={danger ? "text-red-600 font-medium" : ""}>{String(order?.["Signed Plans Received"] ?? "No")}</span>;
                             })()}
                           </TableCell>
                           <TableCell>{String(order?.["Order Received Date"] ?? "-")}</TableCell>
                           <TableCell>
                             {(() => {
                               const v = calculateDaysEscaped(order?.["Order Received Date"]);
-                              return (
-                                <span className="font-medium">
-                                  {v}
-                                  {typeof v === "number" ? " days" : ""}
-                                </span>
-                              );
+                              return <span className="font-medium">{v}{typeof v === "number" ? " days" : ""}</span>;
                             })()}
                           </TableCell>
                         </>
