@@ -74,11 +74,15 @@ export default function UnsignedEmptySlots() {
 
   // 订阅全量数据
   useEffect(() => {
-    const unsubSchedule = subscribeToSchedule((data) => {
-      console.log("All schedule data:", data); // 调试用
-      setAllOrders(data || []);
-      setLoading(false);
-    });
+    const unsubSchedule = subscribeToSchedule(
+  (data) => {
+    console.log("All schedule data (including no-chassis):", data);
+    setAllOrders(data || []);
+    setLoading(false);
+  },
+  { includeNoChassis: true } // 👈 只放开“无 Chassis”这一条
+);
+
     return () => {
       unsubSchedule?.();
     };
