@@ -365,34 +365,46 @@ export default function InventoryStockPage() {
   // —— Order（下单邮件）使用指定的template —— //
   async function handleOrder(row: Row) {
     if (!EMAIL_SERVICE || !EMAIL_PUBLIC_KEY) {
-      toast.error("EmailJS 未配置，无法发送下单邮件");
+      toast.error("EmailJS configuration missing. Cannot send order email.");
       return;
     }
     
     try {
-      // 更新Firebase中的ordered状态和orderedBy字段
-      // 这里需要调用Firebase更新函数，暂时先发送邮件
+      // 构建详细信息字符串
+      const detailsArray = [];
+      detailsArray.push(`Model: ${row.displayModel || row.model || "N/A"}`);
+      detailsArray.push(`Regent Production: ${row.regentProduction || "Not Started"}`);
+      
+      // 添加动态字段信息
+      dynamicCols.forEach(col => {
+        const value = row._raw?.[col];
+        if (value !== null && value !== undefined && value !== "") {
+          detailsArray.push(`${col}: ${stringify(value)}`);
+        }
+      });
+      
+      const currentTime = new Date().toLocaleString();
       
       await emailjs.send(
         EMAIL_SERVICE,
         EMAIL_TEMPLATE,
         {
-          ordered_by: dealerDisplayName, // {{ordered_by}}
-          chassis: row.chassis,
-          model: row.displayModel || row.model || "",
-          regent_production: row.regentProduction || "Not Started",
+          chassis: row.chassis, // {{chassis}}
+          ordered_by: dealerDisplayName, // {{ordered_by}} - 默认为当前页面的dealerSlug
+          order_time: currentTime, // {{order_time}}
+          details: detailsArray.join("\n"), // {{details}}
         },
         EMAIL_PUBLIC_KEY
       );
       
-      toast.success("Order email sent successfully");
+      toast.success(`Order email sent successfully for chassis ${row.chassis}`);
       
       // TODO: 更新Firebase stockorder中的ordered和orderedBy字段
-      // updateStockOrder(row.chassis, { ordered: true, orderedBy: dealerDisplayName });
+      // updateStockOrder(row.chassis, { ordered: true, orderedBy: dealerDisplayName, orderedAt: currentTime });
       
     } catch (e) {
-      console.error(e);
-      toast.error("Failed to send order email");
+      console.error("EmailJS error:", e);
+      toast.error("Failed to send order email. Please try again.");
     }
   }
 
