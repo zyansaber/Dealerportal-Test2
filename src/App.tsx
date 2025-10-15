@@ -42,15 +42,10 @@ const App = () => (
           <Route path="/admin" element={<Admin />} />
 
           {/* Dealer 上下文 - 必须带生成码 */}
-          {/* enforce code in path */}
-          <Route path="/dealer/:dealerSlug-:code" element={<DealerPortal />} />
-          {/* block plain slug */}
-          <Route path="/dealer/:dealerSlug" element={<Navigate to="/access-restricted" replace />} />
+          <Route path="/dealer/:dealerSlug" element={<DealerPortal />} />
           <Route path="/dealer/:dealerSlug/inventorystock" element={<InventoryStockPage />} />
-          <Route path="/dealer/:dealerSlug-:code/unsigned" element={<UnsignedEmptySlots />} />
-          <Route path="/dealer/:dealerSlug/unsigned" element={<Navigate to="/access-restricted" replace />} />
-          <Route path="/dealer/:dealerSlug-:code/dashboard" element={<DealerDashboard />} />
-          <Route path="/dealer/:dealerSlug/dashboard" element={<Navigate to="/access-restricted" replace />} />
+          <Route path="/dealer/:dealerSlug/unsigned" element={<UnsignedEmptySlots />} />
+          <Route path="/dealer/:dealerSlug/dashboard" element={<DealerDashboard />} />
 
           {/* 受限页 */}
           <Route path="/access-restricted" element={<AccessRestricted />} />
