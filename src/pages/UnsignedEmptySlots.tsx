@@ -30,27 +30,41 @@ function prettifyDealerName(slug: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** 解析 dd/mm/yyyy；失败返回 null */
+function parseDDMMYYYY(dateStr?: string): Date | null {
+  const raw = toStr(dateStr).trim();
+  if (!raw) return null;
+  const parts = raw.split("/");
+  if (parts.length !== 3) return null;
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const year = parseInt(parts[2], 10);
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+  const d = new Date(year, month, day);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 /** 计算 Days Escaped（dd/mm/yyyy） */
 function calculateDaysEscaped(orderReceivedDate?: string): number | string {
-  const raw = toStr(orderReceivedDate).trim();
-  if (!raw) return "-";
-  try {
-    const parts = raw.split("/");
-    if (parts.length !== 3) return "-";
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1; // 0-based
-    const year = parseInt(parts[2], 10);
-    if (isNaN(day) || isNaN(month) || isNaN(year)) return "-";
-    const orderDate = new Date(year, month, day);
-    const today = new Date();
-    orderDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    const diffTime = today.getTime() - orderDate.getTime();
-    const diffDays = Math.floor(diffTime / 86400000);
-    return diffDays >= 0 ? diffDays : 0;
-  } catch {
-    return "-";
-  }
+  const d = parseDDMMYYYY(orderReceivedDate);
+  if (!d) return "-";
+  const today = new Date();
+  d.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const diffTime = today.getTime() - d.getTime();
+  const diffDays = Math.floor(diffTime / 86400000);
+  return diffDays >= 0 ? diffDays : 0;
+}
+
+/** 计算：距离今天还有多少周（小数），若无法解析返回 null */
+function weeksUntil(dateStr?: string): number | null {
+  const d = parseDDMMYYYY(dateStr);
+  if (!d) return null;
+  const today = new Date();
+  d.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const diffMs = d.getTime() - today.getTime();
+  return diffMs / (7 * 24 * 60 * 60 * 1000);
 }
 
 export default function UnsignedEmptySlots() {
@@ -81,14 +95,13 @@ export default function UnsignedEmptySlots() {
     return (allOrders || []).filter((order) => slugifyDealerName(order?.Dealer) === dealerSlug);
   }, [allOrders, dealerSlug]);
 
-  /** 给 Sidebar 的“安全版本”订单（全部关键字符串字段都强制转为字符串，防止 Sidebar 内部 .toLowerCase() 报错） */
+  /** 给 Sidebar 的安全版本（全部关键字符串字段转字符串） */
   const sanitizedDealerOrders = useMemo(() => {
     return dealerOrders.map((o) => ({
       ...o,
       Dealer: toStr(o?.Dealer),
       Customer: toStr(o?.Customer),
       Model: toStr(o?.Model),
-      // 这里特意把 Chassis 也转成字符串 —— 只影响 Sidebar 的展示/统计，不影响本页 Empty 的“缺键”判断
       Chassis: hasKey(o, "Chassis") ? toStr(o?.Chassis) : undefined,
       "Forecast Production Date": toStr(o?.["Forecast Production Date"]),
       "Signed Plans Received": toStr(o?.["Signed Plans Received"]),
@@ -97,7 +110,7 @@ export default function UnsignedEmptySlots() {
     }));
   }, [dealerOrders]);
 
-  /** Unsigned：必须存在 Chassis 字段且非空；“Signed Plans Received”为 No 或空 */
+  /** Unsigned：必须存在 Chassis 且非空；“Signed Plans Received”为 No 或空 */
   const unsignedOrders = useMemo(() => {
     return dealerOrders.filter((order) => {
       const hasChassisField = hasKey(order, "Chassis");
@@ -159,8 +172,15 @@ export default function UnsignedEmptySlots() {
           "Order Received Date": toStr(order?.["Order Received Date"]),
           "Days Escaped": calculateDaysEscaped(order?.["Order Received Date"]),
         };
+      } else {
+        // empty 表导出把 “Empty Slots” 判定也加上
+        const wk = weeksUntil(order?.["Forecast Production Date"]);
+        const emptySlotsTag = wk !== null && wk < 22 ? "Red Slots" : "";
+        return {
+          ...baseData,
+          "Empty Slots": emptySlotsTag,
+        };
       }
-      return baseData;
     });
 
     try {
@@ -181,7 +201,7 @@ export default function UnsignedEmptySlots() {
   return (
     <div className="flex min-h-screen">
       <Sidebar
-        orders={sanitizedDealerOrders}  // ← 这里换成“安全版本”传给 Sidebar
+        orders={sanitizedDealerOrders}
         selectedDealer="locked"
         onDealerSelect={() => {}}
         hideOtherDealers
@@ -234,13 +254,6 @@ export default function UnsignedEmptySlots() {
           </Tabs>
         </div>
 
-        {/* Debug Info（可删） */}
-        <div className="p-4 bg-yellow-50 border-b border-yellow-200">
-          <div className="text-sm text-yellow-800">
-            Debug: Total dealer orders: {dealerOrders.length}, Empty orders: {emptyOrders.length}, Unsigned orders: {unsignedOrders.length}
-          </div>
-        </div>
-
         {/* Content */}
         <div className="flex-1 p-6">
           {loading ? (
@@ -260,7 +273,7 @@ export default function UnsignedEmptySlots() {
                   <TableRow>
                     <TableHead className="font-semibold">Forecast Production Date</TableHead>
                     <TableHead className="font-semibold">Dealer</TableHead>
-                    {activeTab === "unsigned" && (
+                    {activeTab === "unsigned" ? (
                       <>
                         <TableHead className="font-semibold">Chassis</TableHead>
                         <TableHead className="font-semibold">Customer</TableHead>
@@ -270,6 +283,9 @@ export default function UnsignedEmptySlots() {
                         <TableHead className="font-semibold">Order Received Date</TableHead>
                         <TableHead className="font-semibold">Days Escaped</TableHead>
                       </>
+                    ) : (
+                      // Empty tab: 新增 “Empty Slots” 列
+                      <TableHead className="font-semibold">Empty Slots</TableHead>
                     )}
                   </TableRow>
                 </TableHeader>
@@ -279,11 +295,22 @@ export default function UnsignedEmptySlots() {
                     const spr = lower(order?.["Signed Plans Received"]);
                     const orderReceived = toStr(order?.["Order Received Date"]);
                     const daysEscaped = calculateDaysEscaped(orderReceived);
+
+                    // 仅 Empty tab 判定 Red Slots
+                    let emptySlotTag = "";
+                    if (activeTab === "empty") {
+                      const wk = weeksUntil(order?.["Forecast Production Date"]);
+                      if (wk !== null && wk < 22) {
+                        emptySlotTag = "Red Slots";
+                      }
+                    }
+
                     return (
                       <TableRow key={key}>
                         <TableCell className="font-medium">{toStr(order?.["Forecast Production Date"]) || "-"}</TableCell>
                         <TableCell className="font-medium">{toStr(order?.Dealer) || "-"}</TableCell>
-                        {activeTab === "unsigned" && (
+
+                        {activeTab === "unsigned" ? (
                           <>
                             <TableCell>{toStr(order?.Chassis) || <span className="text-red-500 italic">Empty</span>}</TableCell>
                             <TableCell>{toStr(order?.Customer) || "-"}</TableCell>
@@ -302,6 +329,10 @@ export default function UnsignedEmptySlots() {
                               </span>
                             </TableCell>
                           </>
+                        ) : (
+                          <TableCell className={emptySlotTag ? "text-red-600 font-semibold" : ""}>
+                            {emptySlotTag || ""}
+                          </TableCell>
                         )}
                       </TableRow>
                     );
