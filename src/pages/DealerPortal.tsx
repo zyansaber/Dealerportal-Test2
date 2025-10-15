@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import Sidebar from "@/components/Sidebar";
 import OrderList from "@/components/OrderList";
+import ModelRangeCards from "@/components/ModelRangeCards";
 import {
   subscribeToSchedule,
   subscribeToSpecPlan,
@@ -49,10 +50,10 @@ export default function DealerPortal() {
   const [loading, setLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(true);
   
-  // 新增过滤状态
+  // 过滤状态
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedModel, setSelectedModel] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [modelRangeFilter, setModelRangeFilter] = useState<{ modelRange?: string; customerType?: string }>({});
 
   // 订阅全量数据（与首页一致），本页再按 dealer 过滤
   useEffect(() => {
@@ -92,8 +93,18 @@ export default function DealerPortal() {
   // 过滤订单
   const filteredOrders = useMemo(() => {
     return dealerOrders.filter(order => {
-      // Model 过滤
-      if (selectedModel !== "all" && order.Model !== selectedModel) return false;
+      // Model Range 过滤
+      if (modelRangeFilter.modelRange) {
+        const chassisPrefix = order.Chassis?.substring(0, 3).toUpperCase();
+        if (chassisPrefix !== modelRangeFilter.modelRange) return false;
+      }
+
+      // Customer Type 过滤
+      if (modelRangeFilter.customerType) {
+        const isStock = order.Customer.toLowerCase().endsWith('stock');
+        if (modelRangeFilter.customerType === 'stock' && !isStock) return false;
+        if (modelRangeFilter.customerType === 'customer' && isStock) return false;
+      }
       
       // Status 过滤
       if (selectedStatus !== "all" && order["Regent Production"] !== selectedStatus) return false;
@@ -111,7 +122,7 @@ export default function DealerPortal() {
       
       return true;
     });
-  }, [dealerOrders, selectedModel, selectedStatus, searchTerm]);
+  }, [dealerOrders, selectedStatus, searchTerm, modelRangeFilter]);
 
   // 展示用的 Dealer 名称：优先来自配置，其次订单里的原始 Dealer 文本，否则用 slug 美化
   const dealerDisplayName = useMemo(() => {
@@ -132,10 +143,9 @@ export default function DealerPortal() {
 
   // 获取所有可选项
   const filterOptions = useMemo(() => {
-    const models = [...new Set(dealerOrders.map(o => o.Model).filter(Boolean))].sort();
     const statuses = [...new Set(dealerOrders.map(o => o["Regent Production"]).filter(Boolean))].sort();
     
-    return { models, statuses };
+    return { statuses };
   }, [dealerOrders]);
 
   const exportToExcel = () => {
@@ -224,11 +234,14 @@ export default function DealerPortal() {
 
   return (
     <div className="flex min-h-screen">
-      {/* 只给 Sidebar 当前经销商的订单，禁用切换 */}
+      {/* Sidebar - 移除统计信息显示 */}
       <Sidebar
         orders={filteredOrders}
         selectedDealer={dealerDisplayName}
         onDealerSelect={() => {}}
+        hideOtherDealers={true}
+        currentDealerName={dealerDisplayName}
+        showStats={false}
       />
       <main className="flex-1 p-6 space-y-6">
         {/* Header */}
@@ -250,7 +263,13 @@ export default function DealerPortal() {
           </Button>
         </header>
 
-        {/* Filters */}
+        {/* Model Range Cards */}
+        <ModelRangeCards 
+          orders={dealerOrders} 
+          onFilterChange={setModelRangeFilter}
+        />
+
+        {/* Remaining Filters */}
         <div className="flex flex-wrap gap-3 items-center">
           <Input
             placeholder="Search chassis, customer, model, status..."
@@ -258,18 +277,6 @@ export default function DealerPortal() {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-64"
           />
-          
-          <Select value={selectedModel} onValueChange={setSelectedModel}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="All Models" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Models</SelectItem>
-              {filterOptions.models.map(model => (
-                <SelectItem key={model} value={model}>{model}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           
           <Select value={selectedStatus} onValueChange={setSelectedStatus}>
             <SelectTrigger className="w-48">
