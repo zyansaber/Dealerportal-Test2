@@ -3,8 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Download, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import Sidebar from "@/components/Sidebar";
 import OrderList from "@/components/OrderList";
@@ -49,10 +47,8 @@ export default function DealerPortal() {
   const [dealerConfig, setDealerConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(true);
-  
-  // 过滤状态
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+
+  // 仅保留 Model Range 的筛选
   const [modelRangeFilter, setModelRangeFilter] = useState<{ modelRange?: string; customerType?: string }>({});
 
   // 订阅全量数据（与首页一致），本页再按 dealer 过滤
@@ -90,7 +86,7 @@ export default function DealerPortal() {
     );
   }, [allOrders, dealerSlug]);
 
-  // 过滤订单
+  // 过滤订单（仅 Model Range / Customer Type）
   const filteredOrders = useMemo(() => {
     return dealerOrders.filter(order => {
       // Model Range 过滤
@@ -101,33 +97,19 @@ export default function DealerPortal() {
 
       // Customer Type 过滤
       if (modelRangeFilter.customerType) {
-        const isStock = order.Customer.toLowerCase().endsWith('stock');
-        if (modelRangeFilter.customerType === 'stock' && !isStock) return false;
-        if (modelRangeFilter.customerType === 'customer' && isStock) return false;
+        const isStock = (order.Customer || "").toLowerCase().endsWith("stock");
+        if (modelRangeFilter.customerType === "stock" && !isStock) return false;
+        if (modelRangeFilter.customerType === "customer" && isStock) return false;
       }
-      
-      // Status 过滤
-      if (selectedStatus !== "all" && order["Regent Production"] !== selectedStatus) return false;
-      
-      // 搜索过滤
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase();
-        return (
-          (order.Chassis || "").toLowerCase().includes(searchLower) ||
-          (order.Customer || "").toLowerCase().includes(searchLower) ||
-          (order.Model || "").toLowerCase().includes(searchLower) ||
-          (order["Regent Production"] || "").toLowerCase().includes(searchLower)
-        );
-      }
-      
+
       return true;
     });
-  }, [dealerOrders, selectedStatus, searchTerm, modelRangeFilter]);
+  }, [dealerOrders, modelRangeFilter]);
 
   // 展示用的 Dealer 名称：优先来自配置，其次订单里的原始 Dealer 文本，否则用 slug 美化
   const dealerDisplayName = useMemo(() => {
     if (dealerConfig?.name) return dealerConfig.name;
-    
+
     const fromOrder = dealerOrders[0]?.Dealer;
     return fromOrder && fromOrder.trim().length > 0
       ? fromOrder
@@ -140,13 +122,6 @@ export default function DealerPortal() {
     if (!dealerConfig) return false; // 没有配置则无权限
     return dealerConfig.isActive; // 根据配置的激活状态
   }, [dealerConfig, configLoading]);
-
-  // 获取所有可选项
-  const filterOptions = useMemo(() => {
-    const statuses = [...new Set(dealerOrders.map(o => o["Regent Production"]).filter(Boolean))].sort();
-    
-    return { statuses };
-  }, [dealerOrders]);
 
   const exportToExcel = () => {
     if (filteredOrders.length === 0) return;
@@ -243,6 +218,7 @@ export default function DealerPortal() {
         currentDealerName={dealerDisplayName}
         showStats={false}
       />
+
       <main className="flex-1 p-6 space-y-6">
         {/* Header */}
         <header className="flex items-center justify-between">
@@ -263,33 +239,11 @@ export default function DealerPortal() {
           </Button>
         </header>
 
-        {/* Model Range Cards */}
+        {/* Model Range Cards（仅此处保留筛选） */}
         <ModelRangeCards 
           orders={dealerOrders} 
           onFilterChange={setModelRangeFilter}
         />
-
-        {/* Remaining Filters */}
-        <div className="flex flex-wrap gap-3 items-center">
-          <Input
-            placeholder="Search chassis, customer, model, status..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-64"
-          />
-          
-          <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="All Statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              {filterOptions.statuses.map(status => (
-                <SelectItem key={status} value={status}>{status}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
 
         {/* Content */}
         {filteredOrders.length === 0 ? (
