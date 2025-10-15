@@ -15,6 +15,7 @@ import DealerDashboard from "./pages/DealerDashboard";
 import UnsignedEmptySlots from "./pages/UnsignedEmptySlots";
 import PasswordLogin from "./pages/PasswordLogin";
 import ProtectedMainRoute from "./components/ProtectedMainRoute";
+import ProtectedDealerRoute from "./components/ProtectedDealerRoute";
 
 const queryClient = new QueryClient();
 
@@ -41,11 +42,27 @@ const App = () => (
           <Route path="/admin-login" element={<AdminLogin />} />
           <Route path="/admin" element={<Admin />} />
 
-          {/* Dealer 上下文 - 必须带生成码 */}
-          <Route path="/dealer/:dealerSlug" element={<DealerPortal />} />
-          <Route path="/dealer/:dealerSlug/inventorystock" element={<InventoryStockPage />} />
-          <Route path="/dealer/:dealerSlug/unsigned" element={<UnsignedEmptySlots />} />
-          <Route path="/dealer/:dealerSlug/dashboard" element={<DealerDashboard />} />
+          {/* Dealer 上下文 - 必须带生成码，格式验证 */}
+          <Route path="/dealer/:dealerSlug" element={
+            <ProtectedDealerRoute>
+              <DealerPortal />
+            </ProtectedDealerRoute>
+          } />
+          <Route path="/dealer/:dealerSlug/inventorystock" element={
+            <ProtectedDealerRoute>
+              <InventoryStockPage />
+            </ProtectedDealerRoute>
+          } />
+          <Route path="/dealer/:dealerSlug/unsigned" element={
+            <ProtectedDealerRoute>
+              <UnsignedEmptySlots />
+            </ProtectedDealerRoute>
+          } />
+          <Route path="/dealer/:dealerSlug/dashboard" element={
+            <ProtectedDealerRoute>
+              <DealerDashboard />
+            </ProtectedDealerRoute>
+          } />
 
           {/* 受限页 */}
           <Route path="/access-restricted" element={<AccessRestricted />} />
