@@ -69,14 +69,20 @@ export default function UnsignedEmptySlots() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"unsigned" | "empty">("unsigned");
 
-  // 订阅全量数据
+  // 订阅全量数据 —— 仅此页面放开过滤（允许无 Chassis / 无 Customer / 包含 Finished）
   useEffect(() => {
-    const unsubSchedule = subscribeToSchedule((data) => {
-      // data 可能是对象或数组，这里统一成数组并过滤无效项
-      const arr = Array.isArray(data) ? data.filter(Boolean) : Object.values(data || {}).filter(Boolean);
-      setAllOrders(arr as ScheduleItem[]);
-      setLoading(false);
-    });
+    const unsubSchedule = subscribeToSchedule(
+      (data) => {
+        const arr = Array.isArray(data) ? data.filter(Boolean) : Object.values(data || {}).filter(Boolean);
+        setAllOrders(arr as ScheduleItem[]);
+        setLoading(false);
+      },
+      {
+        includeNoChassis: true,
+        includeNoCustomer: true,
+        includeFinished: true,
+      }
+    );
     return () => {
       unsubSchedule?.();
     };
