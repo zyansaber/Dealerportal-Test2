@@ -19,9 +19,10 @@ export default function ModelRangeCards({ orders, onFilterChange }: ModelRangeCa
   const modelRanges = useMemo(() => {
     const map = new Map<string, { total: number; stock: number; customer: number }>();
     for (const o of orders) {
-      if (!o?.Chassis) continue;
-      const prefix = o.Chassis.substring(0, 3).toUpperCase();
-      const isStock = (o.Customer || "").toLowerCase().endsWith("stock");
+      const chassis = (o?.Chassis ?? "") as string;
+      if (!chassis) continue;
+      const prefix = chassis.substring(0, 3).toUpperCase();
+      const isStock = String(o?.Customer ?? "").toLowerCase().endsWith("stock");
       if (!map.has(prefix)) map.set(prefix, { total: 0, stock: 0, customer: 0 });
       const r = map.get(prefix)!;
       r.total += 1;
@@ -61,123 +62,106 @@ export default function ModelRangeCards({ orders, onFilterChange }: ModelRangeCa
 
   return (
     <div className="space-y-4">
-      {/* 顶部：紧凑卡片（横向单行滚动 + 视觉升级） */}
+      {/* 顶部：紧凑卡片（自动换行，无横向滚动） */}
       <div>
         <h3 className="text-xs font-medium text-slate-700 mb-2">
           Model Ranges (by Chassis Prefix)
         </h3>
 
-        <div className="overflow-x-auto">
-          <div className="inline-flex gap-2 pr-1 snap-x snap-mandatory">
-            {modelRanges.map(({ prefix, total, stock, customer }) => {
-              const active = selectedRange === prefix;
-              const stockPct = total ? Math.round((stock / total) * 100) : 0;
-              const custPct = 100 - stockPct;
+        <div className="flex flex-wrap gap-2">
+          {modelRanges.map(({ prefix, total, stock, customer }) => {
+            const active = selectedRange === prefix;
+            const stockPct = total ? Math.round((stock / total) * 100) : 0;
+            const custPct = Math.max(0, 100 - stockPct);
 
-              return (
-                <motion.button
-                  key={prefix}
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleRangeClick(prefix)}
-                  className="snap-start"
+            return (
+              <motion.button
+                key={prefix}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => handleRangeClick(prefix)}
+                className="rounded-lg"
+              >
+                <Card
+                  className={[
+                    "rounded-lg w-[132px] h-[56px] px-2.5 py-2",
+                    "flex flex-col justify-between",
+                    "bg-white border",
+                    active ? "border-blue-500 shadow-[0_4px_12px_-6px_rgba(59,130,246,0.45)]" : "hover:shadow-sm",
+                    "transition-all"
+                  ].join(" ")}
                 >
-                  <div
-                    className={[
-                      // 渐变描边外框
-                      "rounded-xl p-[1px]",
-                      active
-                        ? "bg-gradient-to-r from-blue-500 via-sky-400 to-cyan-400"
-                        : "bg-gradient-to-r from-slate-200 to-slate-200",
-                      "transition-shadow"
-                    ].join(" ")}
-                  >
-                    <Card
-                      className={[
-                        "rounded-[11px] min-w-[132px] h-[72px]",
-                        "px-3 py-2 flex flex-col justify-between",
-                        "bg-white/90 backdrop-blur-sm",
-                        active ? "shadow-[0_6px_18px_-8px_rgba(59,130,246,0.5)]" : "hover:shadow-sm"
-                      ].join(" ")}
-                    >
-                      <div className="flex items-center justify-between leading-none">
-                        <span className="text-[11px] font-medium text-slate-700">
-                          {prefix}
-                        </span>
-                        {active && (
-                          <ChevronRight className="w-3 h-3 text-slate-500" />
-                        )}
-                      </div>
-
-                      <div className="flex items-end justify-between">
-                        <span className="text-slate-900 font-semibold text-base leading-none">
-                          {total}
-                        </span>
-                        <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                          <span>Stk {stock}</span>
-                          <span>·</span>
-                          <span>Cust {customer}</span>
-                        </div>
-                      </div>
-
-                      {/* 组合占比条（极细） */}
-                      <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-500"
-                          style={{ width: `${stockPct}%` }}
-                          aria-label={`Stock ${stockPct}%`}
-                        />
-                        <div
-                          className="h-full bg-violet-500"
-                          style={{ width: `${custPct}%` }}
-                          aria-label={`Customer ${custPct}%`}
-                        />
-                      </div>
-                    </Card>
+                  <div className="flex items-center justify-between leading-none">
+                    <span className="text-[11px] font-medium text-slate-700">
+                      {prefix}
+                    </span>
+                    {active && <ChevronRight className="w-3 h-3 text-slate-500" />}
                   </div>
-                </motion.button>
-              );
-            })}
-          </div>
+
+                  <div className="flex items-end justify-between">
+                    <span className="text-slate-900 font-semibold text-[15px] leading-none">
+                      {total}
+                    </span>
+                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                      <span>Stk {stock}</span>
+                      <span>·</span>
+                      <span>Cust {customer}</span>
+                    </div>
+                  </div>
+
+                  {/* 横向占比条（并排显示） */}
+                  <div className="mt-1 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden flex">
+                    <div
+                      className="h-full bg-emerald-500"
+                      style={{ width: `${stockPct}%` }}
+                      aria-label={`Stock ${stockPct}%`}
+                    />
+                    <div
+                      className="h-full bg-violet-500"
+                      style={{ width: `${custPct}%` }}
+                      aria-label={`Customer ${custPct}%`}
+                    />
+                  </div>
+                </Card>
+              </motion.button>
+            );
+          })}
         </div>
       </div>
 
-      {/* 二级：更精致的小统计卡 */}
+      {/* 二级：更精致的小统计卡（同样小尺寸、可换行） */}
       {selectedRange && selectedRangeData && (
         <div>
           <h3 className="text-xs font-medium text-slate-700 mb-2">
             {selectedRange} Breakdown
           </h3>
 
-          <div className="inline-flex gap-2 overflow-x-auto">
+          <div className="flex flex-wrap gap-2">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => handleTypeClick("stock")}
             >
-              <div
+              <Card
                 className={[
-                  "rounded-xl p-[1px]",
-                  selectedType === "stock"
-                    ? "bg-gradient-to-r from-emerald-500 to-green-400"
-                    : "bg-slate-200"
+                  "rounded-lg w-[150px] h-[56px] px-3 py-2",
+                  "flex flex-col justify-between bg-white border",
+                  selectedType === "stock" ? "border-emerald-500" : ""
                 ].join(" ")}
               >
-                <Card className="rounded-[11px] min-w-[148px] h-[72px] px-3 py-2 flex flex-col justify-between bg-white/90">
-                  <div className="text-xs font-medium flex items-center gap-1 leading-none text-emerald-700">
-                    <Package className="w-3 h-3" />
-                    Stock
+                <div className="text-[11px] font-medium flex items-center gap-1 leading-none text-emerald-700">
+                  <Package className="w-3 h-3" />
+                  Stock
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-emerald-600 font-bold text-[15px] leading-none">
+                    {selectedRangeData.stock}
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-emerald-600 font-bold text-base leading-none">
-                      {selectedRangeData.stock}
-                    </div>
-                    <Badge variant="outline" className="h-5 text-[11px]">
-                      {((selectedRangeData.stock / selectedRangeData.total) * 100).toFixed(1)}%
-                    </Badge>
-                  </div>
-                </Card>
-              </div>
+                  <Badge variant="outline" className="h-5 text-[11px]">
+                    {((selectedRangeData.stock / selectedRangeData.total) * 100).toFixed(1)}%
+                  </Badge>
+                </div>
+              </Card>
             </motion.button>
 
             <motion.button
@@ -185,29 +169,26 @@ export default function ModelRangeCards({ orders, onFilterChange }: ModelRangeCa
               whileTap={{ scale: 0.98 }}
               onClick={() => handleTypeClick("customer")}
             >
-              <div
+              <Card
                 className={[
-                  "rounded-xl p-[1px]",
-                  selectedType === "customer"
-                    ? "bg-gradient-to-r from-violet-500 to-fuchsia-500"
-                    : "bg-slate-200"
+                  "rounded-lg w-[150px] h-[56px] px-3 py-2",
+                  "flex flex-col justify-between bg-white border",
+                  selectedType === "customer" ? "border-violet-500" : ""
                 ].join(" ")}
               >
-                <Card className="rounded-[11px] min-w-[148px] h-[72px] px-3 py-2 flex flex-col justify-between bg-white/90">
-                  <div className="text-xs font-medium flex items-center gap-1 leading-none text-violet-700">
-                    <Users className="w-3 h-3" />
-                    Customer
+                <div className="text-[11px] font-medium flex items-center gap-1 leading-none text-violet-700">
+                  <Users className="w-3 h-3" />
+                  Customer
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-violet-600 font-bold text-[15px] leading-none">
+                    {selectedRangeData.customer}
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-violet-600 font-bold text-base leading-none">
-                      {selectedRangeData.customer}
-                    </div>
-                    <Badge variant="outline" className="h-5 text-[11px]">
-                      {((selectedRangeData.customer / selectedRangeData.total) * 100).toFixed(1)}%
-                    </Badge>
-                  </div>
-                </Card>
-              </div>
+                  <Badge variant="outline" className="h-5 text-[11px]">
+                    {((selectedRangeData.customer / selectedRangeData.total) * 100).toFixed(1)}%
+                  </Badge>
+                </div>
+              </Card>
             </motion.button>
           </div>
         </div>
