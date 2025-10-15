@@ -1,6 +1,6 @@
 // src/pages/DealerPortal.tsx
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { Download, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,13 +39,8 @@ function prettifyDealerName(slug: string): string {
 }
 
 export default function DealerPortal() {
-  const navigate = useNavigate();
   const { dealerSlug: rawDealerSlug } = useParams<{ dealerSlug: string }>();
   const dealerSlug = useMemo(() => normalizeDealerSlug(rawDealerSlug), [rawDealerSlug]);
-  const urlCode = useMemo(() => {
-    const m = (rawDealerSlug||"").toLowerCase().match(/^(.*?)-([a-z0-9]{6})$/);
-    return m ? m[2] : "";
-  }, [rawDealerSlug]);
 
   const [allOrders, setAllOrders] = useState<ScheduleItem[]>([]);
   const [specPlans, setSpecPlans] = useState<SpecPlan>({});
@@ -53,25 +48,6 @@ export default function DealerPortal() {
   const [dealerConfig, setDealerConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(true);
-  const [cfgState, setCfgState] = useState<any>(null);
-  useEffect(() => {
-    if (!dealerSlug) return;
-    const off = subscribeDealerConfig(dealerSlug, (cfg) => {
-      setCfgState(cfg);
-      setConfigLoading(false);
-      // access check + code check
-      if (!cfg || cfg.access === false) {
-        navigate("/access-restricted");
-        return;
-      }
-      if ((cfg.code||"").length === 6 && urlCode !== cfg.code) {
-        navigate("/access-restricted");
-        return;
-      }
-    });
-    return () => off?.();
-  }, [dealerSlug, urlCode, navigate]);
-
   
   // 新增过滤状态
   const [searchTerm, setSearchTerm] = useState("");
